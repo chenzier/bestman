@@ -369,15 +369,6 @@ def done(extra, force, date_str, dice_mode, message):
         _roll_dice_animation(dice["distance"], dice["description"], dice["extra_tiles"])
     console.print()
 
-    # 今日航程数字确认
-    if total_advance > 0:
-        console.print(f"[bold cyan]📍 今日航程: +{total_advance} 海里[/bold cyan]")
-    console.print()
-
-    if result.get("llm_used"):
-        console.print("[dim]（日志由 AI 导航员生成）[/dim]")
-    console.print()
-
     # 地图 + 船体摇摆动画
     tiles = result["tiles_revealed"]
     status = voyage.get_status()
@@ -404,6 +395,15 @@ def done(extra, force, date_str, dice_mode, message):
         console.clear()
     console.print(Rule(rule_text, style="dim cyan"))
     console.print(voyage.render_map(today_advance=total_advance))
+    console.print()
+
+    # 今日航程数字确认
+    if total_advance > 0:
+        console.print(f"[bold cyan]📍 今日航程: +{total_advance} 海里[/bold cyan]")
+    console.print()
+
+    if result.get("llm_used"):
+        console.print("[dim]（日志由 AI 导航员生成）[/dim]")
     console.print()
 
     # 日志
