@@ -37,11 +37,14 @@ class Voyage:
         )
 
         self.state = BestmanState()
-        # MapEngine uses 0-based positions; convert from 1-based day numbers
+        # MapEngine uses stages for segmented rendering
+        stages = self.config["voyage"]["stages"]
         raw_milestones = self.config["voyage"]["milestones"]
+        theme = self.config["voyage"].get("theme", "naval")
         self.map_engine = MapEngine(
-            total_days=self.config["voyage"]["total_days"],
+            stages=stages,
             milestones={k - 1: v for k, v in raw_milestones.items()},
+            theme=theme,
         )
         self.event_engine = EventEngine(self.config)
 

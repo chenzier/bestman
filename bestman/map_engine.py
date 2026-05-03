@@ -1,77 +1,153 @@
+"""Segmented map engine with theme support.
+
+Renders a voyage map as stacked stage progress bars instead of a 175-tile grid.
+Each stage is a single row showing progress within that segment.
+"""
+
 import random
+
+from bestman.themes import get_theme
+
+BAR_WIDTH = 25
 
 
 class MapEngine:
-    def __init__(self, total_days=175, milestones=None):
-        self.total_days = total_days
+    """Segmented map renderer.
+
+    Takes a list of stages and renders them as progress bars.
+    Shows completed stages + current stage + next stage (at most).
+    """
+
+    def __init__(self, stages=None, milestones=None, theme="naval"):
+        """
+        Args:
+            stages: List of stage dicts from config, each with "name" and "days" [start, end].
+                    Both start and end are 1-based day numbers.
+            milestones: Dict mapping 0-based tile index to milestone name.
+            theme: Theme name string ("naval" or "cultivation").
+        """
+        self.stages = stages or []
         self.milestones = milestones or {}
-        self.cols = 20
-        self.rows = (total_days + self.cols - 1) // self.cols
-        self._decorations = {}
-        self._generate_decorations()
+        self.theme = get_theme(theme)
+        self._bar_width = BAR_WIDTH
 
-    def _generate_decorations(self):
-        """在已探索区域生成随机装饰，用固定种子保证确定性。"""
-        r = random.Random(42)
-        for i in range(1, self.total_days):  # 跳过第 0 格
-            if i in self.milestones:
-                continue
-            roll = r.random()
-            if roll < 0.15:
-                self._decorations[i] = "\U0001f41f"  # 🐟
-            elif roll < 0.22:
-                self._decorations[i] = "\u2b50"  # ⭐
+        # Compute total_days from last stage
+        if self.stages:
+            self.total_days = self.stages[-1]["days"][1]
+        else:
+            self.total_days = 175
 
-    def _tile_char(self, i, tiles_revealed):
-        """返回 Rich markup 字符串。"""
-        # 终点：航程完成，最后一个格子显示 🏁
-        if tiles_revealed >= self.total_days and i == self.total_days - 1:
-            return "[bold green]\U0001f3c1[/]"  # 🏁
+    def get_current_stage(self, tiles_revealed):
+        """Return all stage sections relevant for rendering.
 
-        if i > tiles_revealed:
-            # 未探索区域
-            r = random.Random(i * 137 + 42)
-            if r.random() < 0.1:
-                return "[dim blue]\u2591[/]"  # ░
-            # 前方 5 格内里程碑线索
-            for mi in self.milestones:
-                if 0 < mi - tiles_revealed <= 5 and abs(i - mi) <= 1:
-                    return "[blue]\u2591[/]"  # ░
-            return "[dim blue]\u2593[/]"  # ▓
+        tiles_revealed is a 0-based count of revealed tiles (ship position in 0-based grid).
+        stages use 1-based day numbers in config, so we convert to 0-based for comparison.
 
-        if i == tiles_revealed:
-            # 船位
-            if i in self.milestones:
-                return "[bold magenta]\u2726[/]"  # ✦ 到达里程碑
-            return "[bold yellow]\u2693[/]"  # ⚓
+        Returns (completed_stages, current_stage, next_stage, current_stage_idx).
+        """
+        current_day = tiles_revealed  # 0-based; ship is at this tile index
 
-        # 已探索区域
-        distance = tiles_revealed - i
+        current_stage_idx = None
+        for i, stage in enumerate(self.stages):
+            _start, _end = stage["days"]
+            # Convert 1-based stage boundaries to 0-based tile indices
+            if _start - 1 <= current_day <= _end - 1:
+                current_stage_idx = i
+                break
 
-        if i in self.milestones:
-            if distance <= 3:
-                return "[bold magenta]\u2726[/]"  # ✦ 刚到达
-            return "[dim magenta]\u2726[/]"  # ✦ 走过的
+        if current_stage_idx is None:
+            if not self.stages:
+                # No stages configured — treat everything as one big stage
+                return [], {"name": "航程", "days": [1, self.total_days]}, None, 0
+            if current_day < self.stages[0]["days"][0]:
+                current_stage_idx = 0
+            else:
+                current_stage_idx = len(self.stages) - 1
 
-        if distance <= 3:
-            return "[bold cyan]\u2248[/]"  # ≈ 尾迹
+        completed = self.stages[:current_stage_idx]
+        current = self.stages[current_stage_idx]
+        nxt = self.stages[current_stage_idx + 1] if current_stage_idx + 1 < len(self.stages) else None
 
-        if i in self._decorations:
-            return f"[cyan]{self._decorations[i]}[/]"
-
-        return "[cyan]~[/]"
+        return completed, current, nxt, current_stage_idx
 
     def render(self, tiles_revealed=0):
-        """Return Rich markup string for the map."""
-        total = self.total_days
+        """Render segmented progress bars.
+
+        Args:
+            tiles_revealed: 0-based count of revealed tiles (from state).
+
+        Returns:
+            Rich markup string with one row per visible stage.
+        """
+        if not self.stages:
+            return "[dim]No stages configured[/dim]"
+
+        completed, current, nxt, _ = self.get_current_stage(tiles_revealed)
+
         lines = []
-        for row in range(self.rows):
-            start = row * self.cols
-            end = min(start + self.cols, total)
-            line_chars = [self._tile_char(i, tiles_revealed) for i in range(start, end)]
-            lines.append("".join(line_chars))
+
+        # Show only the most recent completed stage (keep rows minimal)
+        if completed:
+            lines.append(self._render_completed(completed[-1]))
+
+        # Current stage
+        lines.append(self._render_current(current, tiles_revealed))
+
+        # Next stage (locked)
+        if nxt:
+            lines.append(self._render_locked(nxt))
+
         return "\n".join(lines)
 
+    def _stage_display_name(self, stage):
+        """Get themed display name for a stage."""
+        return self.theme.stage_display_name(stage["name"])
+
+    def _revealed_in_stage(self, stage, tiles_revealed):
+        """How many tiles have been revealed within this stage."""
+        _start = stage["days"][0]
+        _end = stage["days"][1]
+        stage_tiles = _end - _start + 1
+        revealed = tiles_revealed - _start + 1
+        return max(0, min(stage_tiles, revealed))
+
+    def _render_completed(self, stage):
+        """Render a filled progress bar for a completed stage."""
+        name = self._stage_display_name(stage)
+        bar = self.theme.completed_bar(self._bar_width)
+        status = f"{self.theme.tiles.complete_markup} 完成"
+        return f"{name:<8}  {bar}  {status}"
+
+    def _render_current(self, stage, tiles_revealed):
+        """Render the currently active stage bar."""
+        name = self._stage_display_name(stage)
+        stage_tiles = stage["days"][1] - stage["days"][0] + 1
+        revealed = self._revealed_in_stage(stage, tiles_revealed)
+
+        chars = []
+        for pos in range(self._bar_width):
+            chars.append(
+                self.theme.bar_fill(pos, self._bar_width, revealed, stage_tiles)
+            )
+        bar = "".join(chars)
+
+        # Check for completion — if all tiles revealed, show finish/checkmark
+        if revealed >= stage_tiles and revealed > 0:
+            status = f"{self.theme.tiles.complete_markup} 完成"
+        else:
+            status = f"{revealed}/{stage_tiles}"
+
+        return f"{name:<8}  {bar}  {status}"
+
+    def _render_locked(self, stage):
+        """Render a locked (unreached) stage bar."""
+        name = self._stage_display_name(stage)
+        bar = self.theme.locked_bar(self._bar_width)
+        status = f"{self.theme.tiles.lock_markup} 即将解锁"
+        return f"{name:<8}  {bar}  {status}"
+
+
+# ── voyage log templates (unchanged) ──
 
 VOYAGE_LOG_TEMPLATES = [
     "晨光洒在甲板上，bestman 号缓缓驶出港口。水手们精神抖擞，风帆鼓满西风。前方是未知的海洋——但今天，我们只需要航行这一格。",
