@@ -29,6 +29,38 @@ DEFAULT_CONFIG = {
             {"name": "新大陆近海", "days": [151, 175]},
         ],
     },
+    "events": [
+        {
+            "id": "tailwind",
+            "type": "bonus_tile",
+            "probability": 0.15,
+            "message": "顺风！海风推着船帆，今天额外航行了1格。",
+        },
+        {
+            "id": "dolphin_escort",
+            "type": "encouragement",
+            "probability": 0.10,
+            "message": "一群海豚出现在船首，伴游了整个上午。它们似乎在为你加油。",
+        },
+        {
+            "id": "starry_night",
+            "type": "encouragement",
+            "probability": 0.12,
+            "message": "今晚的星空格外明亮。北极星就在正前方——你没有偏航。",
+        },
+        {
+            "id": "whale_challenge",
+            "type": "challenge",
+            "probability": 0.08,
+            "message": "远处有鲸群喷水。导航员说：如果今天多做一组深蹲，明天顺风概率翻倍。",
+        },
+        {
+            "id": "treasure_chest",
+            "type": "bonus_tile",
+            "probability": 0.05,
+            "message": "🎁 捞到漂流瓶！瓶中信写着'继续前进'。系统额外+1格。",
+        },
+    ],
     "profile": {
         "name": "水手",
     },
