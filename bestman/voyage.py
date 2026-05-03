@@ -151,7 +151,7 @@ class Voyage:
         })
         return descriptions.get(distance, f"航行 {distance} 格")
 
-    def complete(self, date_str=None, extra_tiles=0, distance=None) -> dict:
+    def complete(self, date_str=None, extra_tiles=0, force=False, distance=None) -> dict:
         """完成今日任务，掷骰子推进。
 
         原子操作：检查 → 掷骰 → 金币计算 → 记录 → LLM 日志（fallback 模板） → 里程碑 → 事件 → 宝藏记录。
@@ -179,8 +179,8 @@ class Voyage:
         if date_str is None:
             date_str = date.today().isoformat()
 
-        # 检查是否已记录
-        if self.state.today_recorded(date_str):
+        # 检查是否已记录（-f/--force 跳过）
+        if not force and self.state.today_recorded(date_str):
             return {
                 "success": False,
                 "message": "今日已经完成过了",
@@ -194,6 +194,10 @@ class Voyage:
                 "coins": None,
                 "treasures": None,
             }
+
+        # -f/--force：删除今日旧记录
+        if force:
+            self.state.delete_day(date_str)
 
         # 掷骰子 + 手动超额
         old_tiles = self.state.get_tiles_revealed()
