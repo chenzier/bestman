@@ -51,28 +51,21 @@ def _dashboard():
     console.print(Rule("[bold cyan]bestman — 航向新大陆[/bold cyan]"))
     console.print()
 
-    # 地图
+    # 分段地图
     console.print(voyage.render_map())
     console.print()
 
-    # 进度条
+    # 状态行
     tiles = status["tiles_revealed"]
     total = status["total_days"]
-    percent = min(100, int(tiles / total * 100))
-    bar_width = 30
-    filled = int(bar_width * tiles / total) if total > 0 else 0
-    empty = bar_width - filled
-
     stage_name = status["stage"]["name"]
+    streak = status["completed_days"]
     console.print(
         f"DAY {status['current_day']}/{total} · "
         f"[bold yellow]{stage_name}[/bold yellow] · "
         f"剩余 {status['remaining']} 天"
     )
-
-    bar = "[bold green]" + "█" * filled + "[dim]" + "░" * empty + "[/dim]"
-    console.print(f"{bar} {tiles}/{total}")
-
+    console.print(f"[dim]🔥 连击 {streak} 天[/dim]")
     console.print()
 
     # 今日任务

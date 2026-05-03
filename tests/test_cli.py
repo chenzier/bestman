@@ -91,7 +91,7 @@ class TestDashboard:
 
     @patch("bestman.cli.BESTMAN_HOME")
     def test_dashboard_renders(self, mock_home, mock_voyage, runner):
-        """仪表盘渲染 Rule + 地图 + 进度。"""
+        """仪表盘渲染 Rule + 分段地图 + 状态行。"""
         mock_home.is_dir.return_value = True
 
         result = runner.invoke(main)
@@ -99,10 +99,11 @@ class TestDashboard:
         assert result.exit_code == 0
         # 应有 Rule 标题
         assert "bestman" in result.output.lower()
-        # 应有地图
+        # 应有地图（mock 返回 MOCK_MAP_HERE）
         assert "MOCK_MAP_HERE" in result.output
-        # 应有进度
-        assert "0/175" in result.output
+        # 应有状态行：DAY 1/175
+        assert "DAY 1/175" in result.output
+        assert "启航" in result.output
 
     @patch("bestman.cli.BESTMAN_HOME")
     def test_dashboard_not_initialized(self, mock_home, runner):

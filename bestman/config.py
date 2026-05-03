@@ -9,6 +9,7 @@ BESTMAN_HOME = Path.home() / ".bestman"
 
 DEFAULT_CONFIG = {
     "voyage": {
+        "theme": "naval",
         "total_days": 175,
         "end_date": "2026-10-25",
         "default_daily_task": "死虫式 3×10 + 静蹲 2×30秒",
