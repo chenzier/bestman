@@ -32,6 +32,7 @@ DEFAULT_CONFIG = {
         ],
     },
     "dice": {
+        "mode": "deterministic",
         "weights": [60, 30, 10],
         "descriptions": {
             1: "风平浪静，缓缓前行",
@@ -119,6 +120,26 @@ def load_config():
         user_config = yaml.safe_load(config_path.read_text()) or {}
         return _deep_merge(DEFAULT_CONFIG, user_config)
     return dict(DEFAULT_CONFIG)
+
+
+def save_config(config):
+    """Save configuration dict to ~/.bestman/config.yaml.
+
+    Args:
+        config: Full configuration dict to write.
+    """
+    config_path = BESTMAN_HOME / "config.yaml"
+    config_path.write_text(yaml.dump(config, allow_unicode=True, sort_keys=False))
+
+
+def get_dice_mode():
+    """Read current dice mode from user config.
+
+    Returns:
+        str: "deterministic" or "interactive"
+    """
+    config = load_config()
+    return config.get("dice", {}).get("mode", "deterministic")
 
 
 def get_current_stage(day, config):
