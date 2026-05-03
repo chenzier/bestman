@@ -293,7 +293,8 @@ def init():
 @click.option("-d", "--date", "date_str", default=None, help="指定日期 YYYY-MM-DD（测试用）")
 @click.option("--mode", "dice_mode", type=click.Choice(["deterministic", "interactive"]),
               default=None, help="骰子模式（覆盖配置）")
-def done(extra, force, date_str, dice_mode):
+@click.option("-m", "--message", default=None, help="手动输入航行日志内容")
+def done(extra, force, date_str, dice_mode, message):
     """完成今日任务，掷骰子推进 1-3 格。
 
     每天只能完成一次。完成后会生成航海日志并检查里程碑。
@@ -326,11 +327,11 @@ def done(extra, force, date_str, dice_mode):
         console.print(f"🎲 {face}  掷出：[bold cyan]{desc}[/bold cyan]！航行 [bold yellow]{distance + extra}[/bold yellow] 海里")
 
         with console.status("[cyan]导航员正在撰写航海日志...[/cyan]"):
-            result = voyage.complete(date_str=date_str, extra_tiles=extra, force=force, distance=distance)
+            result = voyage.complete(date_str=date_str, extra_tiles=extra, force=force, distance=distance, message=message)
     else:
         # 确定性模式（当前流程）
         with console.status("[cyan]导航员正在撰写航海日志...[/cyan]"):
-            result = voyage.complete(date_str=date_str, extra_tiles=extra, force=force)
+            result = voyage.complete(date_str=date_str, extra_tiles=extra, force=force, message=message)
 
     if not result["success"]:
         console.print(f"[yellow]{result['error']}[/yellow]")

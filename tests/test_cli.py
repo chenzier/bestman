@@ -351,6 +351,29 @@ class TestDoneCommand:
         assert "古代沉船" in result.output
 
     @patch("bestman.cli.BESTMAN_HOME")
+    def test_done_with_manual_message(self, mock_home, mock_voyage, runner):
+        """done -m 传入手动日志，跳过 LLM。"""
+        mock_home.is_dir.return_value = True
+        mock_voyage["inst"].complete.return_value = {
+            "success": True,
+            "message": "完成！推进了 1 格",
+            "tiles_revealed": 1,
+            "log_entry": "室内俯卧撑 50×3，汗流浃背",
+            "milestone": None,
+            "error": None,
+            "llm_used": False,
+            "dice": {"distance": 1, "description": "风平浪静", "extra_tiles": 0},
+        }
+
+        result = runner.invoke(main, ["done", "-m", "室内俯卧撑 50×3，汗流浃背"])
+
+        assert result.exit_code == 0
+        assert "室内俯卧撑" in result.output
+        mock_voyage["inst"].complete.assert_called_once()
+        call_kwargs = mock_voyage["inst"].complete.call_args.kwargs
+        assert call_kwargs["message"] == "室内俯卧撑 50×3，汗流浃背"
+
+    @patch("bestman.cli.BESTMAN_HOME")
     def test_done_voyage_complete(self, mock_home, mock_voyage, runner):
         """完成全部航程时显示完成面板。"""
         mock_home.is_dir.return_value = True
