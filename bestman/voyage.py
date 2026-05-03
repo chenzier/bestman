@@ -130,7 +130,24 @@ class Voyage:
         else:
             return 3, descriptions[3]
 
-    def complete(self, date_str=None, extra_tiles=0) -> dict:
+    def _get_distance_description(self, distance):
+        """Get description text for a given distance value.
+
+        Args:
+            distance: Distance value (1, 2, or 3).
+
+        Returns:
+            str: Description text from config.
+        """
+        dice_config = self.config.get("dice", {})
+        descriptions = dice_config.get("descriptions", {
+            1: "风平浪静，缓缓前行",
+            2: "顺风满帆，航行两格",
+            3: "暴风助力，航行三格！",
+        })
+        return descriptions.get(distance, f"航行 {distance} 格")
+
+    def complete(self, date_str=None, extra_tiles=0, distance=None) -> dict:
         """完成今日任务，掷骰子推进。
 
         原子操作：检查 → 掷骰 → 记录 → LLM 日志（fallback 模板） → 里程碑。
@@ -138,6 +155,7 @@ class Voyage:
         Args:
             date_str: 日期字符串 (YYYY-MM-DD)，默认今天
             extra_tiles: 额外推进格数（-e 参数叠加）
+            distance: 互动模式下由 CLI 传入的掷骰结果。传入时跳过 _roll_distance()。
 
         Returns:
             dict: {
@@ -171,7 +189,11 @@ class Voyage:
 
         # 掷骰子 + 手动超额
         old_tiles = self.state.get_tiles_revealed()
-        distance, description = self._roll_distance(date_str)
+        if distance is not None:
+            # 互动模式：距离由 CLI 传入
+            description = self._get_distance_description(distance)
+        else:
+            distance, description = self._roll_distance(date_str)
         total_advance = distance + extra_tiles
 
         # 记录

@@ -63,7 +63,15 @@ def mock_voyage():
             "milestone": None,
             "error": None,
             "llm_used": False,
+            "dice": {"distance": 1, "description": "风平浪静", "extra_tiles": 0},
         }
+
+        # config mock
+        mock_inst.config = {
+            "dice": {"mode": "deterministic", "weights": [60, 30, 10]},
+            "voyage": {"total_days": 175},
+        }
+        mock_inst._get_distance_description = MagicMock(return_value="风平浪静，缓缓前行")
 
         # talk 默认返回
         mock_inst.talk.return_value = {
@@ -189,13 +197,15 @@ class TestDoneCommand:
             "log_entry": "晨光洒在甲板上，bestman 号缓缓驶出港口。",
             "milestone": None,
             "error": None,
+            "llm_used": False,
+            "dice": {"distance": 1, "description": "风平浪静", "extra_tiles": 0},
         }
         mock_voyage["inst"].get_status.return_value["tiles_revealed"] = 1
 
         result = runner.invoke(main, ["done"])
 
         assert result.exit_code == 0
-        assert "完成" in result.output
+        assert "掷出" in result.output
         assert "晨光洒在甲板上" in result.output
 
     @patch("bestman.cli.BESTMAN_HOME")
@@ -237,6 +247,8 @@ class TestDoneCommand:
             "log_entry": "海面平静如镜。",
             "milestone": "穿越迷雾之海",
             "error": None,
+            "llm_used": False,
+            "dice": {"distance": 1, "description": "风平浪静", "extra_tiles": 0},
         }
 
         result = runner.invoke(main, ["done"])
@@ -256,6 +268,8 @@ class TestDoneCommand:
             "log_entry": "夕阳把整片海洋染成金色。",
             "milestone": "抵达新大陆",
             "error": None,
+            "llm_used": False,
+            "dice": {"distance": 1, "description": "风平浪静", "extra_tiles": 0},
         }
         mock_voyage["inst"].get_status.return_value = {
             "tiles_revealed": 175,
@@ -459,3 +473,101 @@ class TestTalkCommand:
 
         assert result.exit_code == 0
         assert "导航员暂时无法回应" in result.output
+
+
+class TestConfigCommand:
+    """bestman config 测试。"""
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.cli.load_config")
+    def test_config_dice_mode_show(self, mock_load, mock_home, runner):
+        """config dice-mode 无参数时显示当前模式。"""
+        mock_home.is_dir.return_value = True
+        mock_load.return_value = {"dice": {"mode": "deterministic"}}
+
+        result = runner.invoke(main, ["config", "dice-mode"])
+
+        assert result.exit_code == 0
+        assert "确定性" in result.output
+        assert "deterministic" in result.output
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.cli.load_config")
+    def test_config_dice_mode_show_interactive(self, mock_load, mock_home, runner):
+        """config dice-mode 显示互动模式。"""
+        mock_home.is_dir.return_value = True
+        mock_load.return_value = {"dice": {"mode": "interactive"}}
+
+        result = runner.invoke(main, ["config", "dice-mode"])
+
+        assert result.exit_code == 0
+        assert "互动" in result.output
+        assert "interactive" in result.output
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.cli.save_config")
+    @patch("bestman.cli.load_config")
+    def test_config_dice_mode_set_interactive(self, mock_load, mock_save, mock_home, runner):
+        """config dice-mode interactive 切换模式并显示成功。"""
+        mock_home.is_dir.return_value = True
+        mock_load.return_value = {"dice": {"mode": "deterministic"}}
+
+        result = runner.invoke(main, ["config", "dice-mode", "interactive"])
+
+        assert result.exit_code == 0
+        mock_save.assert_called_once()
+        assert "切换" in result.output
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_config_not_initialized(self, mock_home, runner):
+        """未 init 时 config 提示 init。"""
+        mock_home.is_dir.return_value = False
+
+        result = runner.invoke(main, ["config", "dice-mode"])
+
+        assert result.exit_code == 1
+        assert "尚未初始化" in result.output
+
+
+class TestDoneInteractiveMode:
+    """bestman done --mode interactive 测试。"""
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.cli._interactive_roll")
+    def test_done_interactive_mode(self, mock_roll, mock_home, mock_voyage, runner):
+        """互动模式下调用 _interactive_roll 并将结果传给 complete()。"""
+        mock_home.is_dir.return_value = True
+        mock_roll.return_value = 2
+
+        result = runner.invoke(main, ["done", "--mode", "interactive"])
+
+        assert result.exit_code == 0
+        mock_roll.assert_called_once()
+        mock_voyage["inst"].complete.assert_called_once()
+        call_kwargs = mock_voyage["inst"].complete.call_args.kwargs
+        assert call_kwargs["distance"] == 2
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.cli._interactive_roll")
+    def test_done_interactive_from_config(self, mock_roll, mock_home, mock_voyage, runner):
+        """配置为 interactive 时即使不传 --mode 也用互动模式。"""
+        mock_home.is_dir.return_value = True
+        mock_roll.return_value = 3
+        mock_voyage["inst"].config["dice"]["mode"] = "interactive"
+
+        result = runner.invoke(main, ["done"])
+
+        assert result.exit_code == 0
+        mock_roll.assert_called_once()
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_done_deterministic_mode_explicit(self, mock_home, mock_voyage, runner):
+        """--mode deterministic 覆盖配置，用确定性模式。"""
+        mock_home.is_dir.return_value = True
+        mock_voyage["inst"].config["dice"]["mode"] = "interactive"
+
+        result = runner.invoke(main, ["done", "--mode", "deterministic"])
+
+        assert result.exit_code == 0
+        mock_voyage["inst"].complete.assert_called_once()
+        assert "distance" not in mock_voyage["inst"].complete.call_args.kwargs

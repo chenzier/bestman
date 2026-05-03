@@ -630,3 +630,90 @@ class TestIsInitialized:
         """BESTMAN_HOME 不存在时返回 False。"""
         mock_home.is_dir.return_value = False
         assert Voyage.is_initialized() is False
+
+
+class TestCompleteWithDistance:
+    """complete(distance=N) 互动模式测试。"""
+
+    def test_complete_with_distance_skips_roll(self, mock_deps):
+        """传入 distance 时跳过 _roll_distance，直接使用给定值。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [0, 3]
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03", distance=3)
+
+        assert result["success"] is True
+        assert result["tiles_revealed"] == 3
+        assert result["dice"]["distance"] == 3
+        assert result["dice"]["extra_tiles"] == 0
+        assert "暴风助力" in result["dice"]["description"]
+
+    def test_complete_with_distance_and_extra(self, mock_deps):
+        """distance + extra_tiles 正确叠加。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [5, 9]
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03", extra_tiles=2, distance=2)
+
+        assert result["success"] is True
+        assert result["tiles_revealed"] == 9
+        assert result["dice"]["distance"] == 2
+        assert result["dice"]["extra_tiles"] == 2
+        assert "航行 4 海里" in result["message"]
+        mock_deps["state"].record_day.assert_any_call(
+            "2026-05-03", completed=4, extra=0
+        )
+
+    def test_complete_with_distance_duplicate_rejected(self, mock_deps):
+        """互动模式下重复打卡仍然被拒绝。"""
+        mock_deps["state"].today_recorded.return_value = True
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03", distance=2)
+
+        assert result["success"] is False
+        assert result["error"] == "今日已经打卡"
+        mock_deps["state"].record_day.assert_not_called()
+
+    def test_complete_with_distance_default_date(self, mock_deps):
+        """不传 date_str 时使用今天。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [0, 1]
+
+        voyage = Voyage()
+        result = voyage.complete(distance=1)
+
+        today = date.today().isoformat()
+        mock_deps["state"].today_recorded.assert_called_with(today)
+        assert result["success"] is True
+
+
+class TestGetDistanceDescription:
+    """_get_distance_description() 测试。"""
+
+    def test_get_description_one(self, mock_deps):
+        """距离 1 的描述。"""
+        voyage = Voyage()
+        desc = voyage._get_distance_description(1)
+        assert "风平浪静" in desc
+
+    def test_get_description_two(self, mock_deps):
+        """距离 2 的描述。"""
+        voyage = Voyage()
+        desc = voyage._get_distance_description(2)
+        assert "顺风满帆" in desc
+
+    def test_get_description_three(self, mock_deps):
+        """距离 3 的描述。"""
+        voyage = Voyage()
+        desc = voyage._get_distance_description(3)
+        assert "暴风助力" in desc
+
+    def test_get_description_fallback(self, mock_deps):
+        """不支持的 distance 值返回 fallback 文本。"""
+        mock_deps["config"]["dice"]["descriptions"] = {}
+        voyage = Voyage()
+        desc = voyage._get_distance_description(5)
+        assert "航行 5 格" in desc
