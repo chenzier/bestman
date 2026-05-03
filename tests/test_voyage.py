@@ -39,6 +39,34 @@ def mock_deps():
                     {"name": "启航", "days": (1, 25)},
                 ],
             },
+            "coins": {
+                "daily_complete": 10,
+                "dice_3": 5,
+                "extra_per_tile": 5,
+                "streak_7": 25,
+                "streak_30": 50,
+                "milestone": 100,
+            },
+            "treasures": {
+                "explicit": [
+                    {
+                        "name": "测试宝藏",
+                        "position": 8,
+                        "coins": 50,
+                        "message": "你发现了一个测试宝藏！",
+                    },
+                ],
+                "implicit": {
+                    "pool": [
+                        {
+                            "name": "测试隐式宝藏",
+                            "coins": 20,
+                            "message": "隐式宝藏触发！",
+                        },
+                    ],
+                    "probability": 0.0,  # 默认关闭，测试手动开启
+                },
+            },
             "dice": {
                 "weights": [100, 0, 0],
                 "descriptions": {
@@ -64,6 +92,8 @@ def mock_deps():
         mock_state.get_streak.return_value = 0
         mock_state.get_available_skip_tokens.return_value = 0
         mock_state.use_skip_token.return_value = False
+        mock_state.get_total_coins.return_value = 0
+        mock_state.get_treasures.return_value = []
         mock_state_cls.return_value = mock_state
 
         # Map engine mock
@@ -133,6 +163,28 @@ class TestVoyageInit:
         assert status["today_done"] is True
         assert status["completed_days"] == 40
 
+    def test_get_status_includes_coins(self, mock_deps):
+        """status 包含 coins 字段。"""
+        mock_deps["state"].get_total_coins.return_value = 150
+
+        voyage = Voyage()
+        status = voyage.get_status()
+
+        assert status["coins"] == 150
+
+    def test_get_status_includes_treasures(self, mock_deps):
+        """status 包含 treasures 字段。"""
+        mock_treasures = [
+            {"name": "沉船宝藏", "type": "explicit", "coins": 50, "discovered_date": "2026-05-03"},
+        ]
+        mock_deps["state"].get_treasures.return_value = mock_treasures
+
+        voyage = Voyage()
+        status = voyage.get_status()
+
+        assert len(status["treasures"]) == 1
+        assert status["treasures"][0]["name"] == "沉船宝藏"
+
 
 class TestGetDailyTask:
     """get_daily_task() 测试。"""
@@ -176,8 +228,9 @@ class TestComplete:
 
         # 验证 state 调用
         mock_deps["state"].today_recorded.assert_called_with("2026-05-03")
-        mock_deps["state"].record_day.assert_called_once_with(
-            "2026-05-03", completed=1, extra=0
+        # record_day 被调用两次（preliminary + final），均含 coins_earned
+        mock_deps["state"].record_day.assert_any_call(
+            "2026-05-03", completed=1, extra=0, coins_earned=10
         )
         mock_deps["state"].save_log.assert_called_once()
 
@@ -311,6 +364,170 @@ class TestComplete:
         )
 
 
+class TestCompleteCoins:
+    """complete() 金币产出测试。"""
+
+    def test_complete_returns_coins_breakdown(self, mock_deps):
+        """成功打卡后 result 包含 coins 字段。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [0, 1]
+        mock_deps["state"].get_streak.return_value = 0
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["success"] is True
+        assert result["coins"] is not None
+        assert result["coins"]["total"] == 10  # daily only
+        assert "每日打卡" in result["coins"]["breakdown"]
+
+    def test_complete_coins_dice_3_bonus(self, mock_deps):
+        """掷骰 3 格时获得额外 5 金币。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [0, 3]
+        mock_deps["state"].get_streak.return_value = 0
+        # 修改 dice weights 让掷出 3
+        mock_deps["config"]["dice"]["weights"] = [0, 0, 100]
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["coins"]["total"] == 15  # daily(10) + dice3(5)
+        assert "暴风加成" in result["coins"]["breakdown"]
+
+    def test_complete_coins_extra_tiles(self, mock_deps):
+        """手动超额获得 5 金币/格。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [0, 3]
+        mock_deps["state"].get_streak.return_value = 0
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03", extra_tiles=2)
+
+        assert result["coins"]["total"] == 20  # daily(10) + extra(5*2=10)
+        assert "额外推进" in result["coins"]["breakdown"]
+
+    def test_complete_coins_milestone(self, mock_deps):
+        """跨越里程碑获得 100 金币。"""
+        mock_deps["state"].today_recorded.return_value = False
+        # old_tiles=4, dice=1 → crosses milestone at 5
+        mock_deps["state"].get_tiles_revealed.side_effect = [4, 5]
+        mock_deps["state"].get_streak.return_value = 0
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["coins"]["total"] == 110  # daily(10) + milestone(100)
+        assert "里程碑" in result["coins"]["breakdown"]
+
+    def test_complete_coins_explicit_treasure(self, mock_deps):
+        """到达显式宝藏位置获得宝藏金币。"""
+        mock_deps["state"].today_recorded.return_value = False
+        # old_tiles=7, dice=1 → crosses treasure at position 8
+        mock_deps["state"].get_tiles_revealed.side_effect = [7, 8]
+        mock_deps["state"].get_streak.return_value = 0
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["coins"]["total"] == 60  # daily(10) + treasure(50)
+        assert len(result["treasures"]) == 1
+        assert result["treasures"][0]["name"] == "测试宝藏"
+        assert result["treasures"][0]["coins"] == 50
+
+    def test_complete_explicit_treasure_not_crossed(self, mock_deps):
+        """未到达宝藏位置时不触发宝藏。"""
+        mock_deps["state"].today_recorded.return_value = False
+        # old_tiles=3, dice=1 → reaches 4, treasure at 8 not crossed
+        mock_deps["state"].get_tiles_revealed.side_effect = [3, 4]
+        mock_deps["state"].get_streak.return_value = 0
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["treasures"] == []
+        assert result["coins"]["total"] == 10  # daily only
+
+    def test_complete_implicit_treasure_triggered(self, mock_deps):
+        """隐式宝藏概率 100% 时必定触发。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [0, 1]
+        mock_deps["state"].get_streak.return_value = 0
+        # 将隐式宝藏概率设为 1.0
+        mock_deps["config"]["treasures"]["implicit"]["probability"] = 1.0
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert len(result["treasures"]) == 1
+        assert result["treasures"][0]["type"] == "implicit"
+        assert result["treasures"][0]["coins"] == 20
+        assert result["coins"]["total"] == 30  # daily(10) + implicit treasure(20)
+
+    def test_complete_treasure_persisted(self, mock_deps):
+        """发现宝藏后调用 discover_treasure 持久化。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [7, 8]  # crosses position 8
+        mock_deps["state"].get_streak.return_value = 0
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        mock_deps["state"].discover_treasure.assert_called_once_with(
+            "测试宝藏", "explicit", 50, "2026-05-03"
+        )
+
+    def test_complete_treasure_saves_log(self, mock_deps):
+        """发现宝藏后写入 voyage_logs。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [7, 8]
+        mock_deps["state"].get_streak.return_value = 0
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        # Check save_log was called with treasure_found event_type
+        treasure_calls = [
+            call for call in mock_deps["state"].save_log.call_args_list
+            if (len(call.args) > 2 and call.args[2] == "treasure_found")
+            or call.kwargs.get("event_type") == "treasure_found"
+        ]
+        assert len(treasure_calls) == 1
+
+    def test_complete_coins_streak_7(self, mock_deps):
+        """连击 7 天获得额外 25 金币。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [0, 1]
+        mock_deps["state"].get_streak.return_value = 7
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["coins"]["total"] == 35  # daily(10) + streak_7(25)
+        assert "连击7天" in result["coins"]["breakdown"]
+
+    def test_complete_coins_streak_30(self, mock_deps):
+        """连击 30 天获得额外 50 金币。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [0, 1]
+        mock_deps["state"].get_streak.return_value = 30
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["coins"]["total"] == 60  # daily(10) + streak_30(50)
+        assert "连击30天" in result["coins"]["breakdown"]
+
+    def test_complete_no_coins_on_duplicate(self, mock_deps):
+        """重复打卡时 coins 为 None。"""
+        mock_deps["state"].today_recorded.return_value = True
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["coins"] is None
+
+
 class TestCompleteStreakAward:
     """complete() 连击奖励测试。"""
 
@@ -367,9 +584,9 @@ class TestDiceRolling:
         assert result["tiles_revealed"] == 13  # 10 + 1 (dice) + 2 (extra)
         assert result["dice"]["distance"] == 1
         assert result["dice"]["extra_tiles"] == 2
-        # record_day 的 completed = dice + extra
+        # record_day 的 completed = dice + extra，coins = 10(daily) + 5*2(extra)
         mock_deps["state"].record_day.assert_any_call(
-            "2026-05-03", completed=3, extra=0
+            "2026-05-03", completed=3, extra=0, coins_earned=20
         )
         assert "航行 3 海里" in result["message"]
 

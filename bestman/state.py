@@ -14,7 +14,7 @@ class BestmanState:
         self._init_tables()
         self._migrate()
 
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def _init_tables(self):
         self.conn.execute("""
@@ -63,10 +63,34 @@ class BestmanState:
                 )
             """)
 
-    def record_day(self, day, completed=1, extra=0, task_done="", used_skip=0):
+        # v0.4: add coins_earned column to days
+        cursor = self.conn.execute("PRAGMA table_info(days)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "coins_earned" not in columns:
+            self.conn.execute(
+                "ALTER TABLE days ADD COLUMN coins_earned INTEGER NOT NULL DEFAULT 0"
+            )
+
+        # v0.4: add treasures table
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='treasures'"
+        )
+        if not cursor.fetchone():
+            self.conn.execute("""
+                CREATE TABLE treasures (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    coins INTEGER NOT NULL,
+                    discovered_date TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+
+    def record_day(self, day, completed=1, extra=0, task_done="", used_skip=0, coins_earned=0):
         self.conn.execute(
-            "INSERT OR REPLACE INTO days (date, completed, extra, task_done, used_skip) VALUES (?, ?, ?, ?, ?)",
-            (day, completed, extra, task_done, used_skip),
+            "INSERT OR REPLACE INTO days (date, completed, extra, task_done, used_skip, coins_earned) VALUES (?, ?, ?, ?, ?, ?)",
+            (day, completed, extra, task_done, used_skip, coins_earned),
         )
         self.conn.commit()
 
@@ -188,7 +212,48 @@ class BestmanState:
         self.conn.execute("DELETE FROM days")
         self.conn.execute("DELETE FROM voyage_logs")
         self.conn.execute("DELETE FROM skip_tokens")
+        self.conn.execute("DELETE FROM treasures")
         self.conn.commit()
+
+    def get_total_coins(self):
+        """返回累计金币总数。
+
+        Returns:
+            int: 所有天的 coins_earned 之和
+        """
+        cursor = self.conn.execute(
+            "SELECT COALESCE(SUM(coins_earned), 0) FROM days"
+        )
+        return cursor.fetchone()[0]
+
+    def discover_treasure(self, name, treasure_type, coins, discovered_date):
+        """记录发现宝藏。
+
+        Args:
+            name: 宝藏名称
+            treasure_type: 'explicit' 或 'implicit'
+            coins: 金币数量
+            discovered_date: 发现日期 (YYYY-MM-DD)
+        """
+        self.conn.execute(
+            "INSERT INTO treasures (name, type, coins, discovered_date) VALUES (?, ?, ?, ?)",
+            (name, treasure_type, coins, discovered_date),
+        )
+        self.conn.commit()
+
+    def get_treasures(self):
+        """返回已发现的所有宝藏。
+
+        Returns:
+            list[dict]: 宝藏记录列表
+        """
+        cursor = self.conn.execute(
+            "SELECT name, type, coins, discovered_date FROM treasures ORDER BY discovered_date ASC"
+        )
+        return [
+            {"name": row[0], "type": row[1], "coins": row[2], "discovered_date": row[3]}
+            for row in cursor.fetchall()
+        ]
 
     def close(self):
         self.conn.close()
