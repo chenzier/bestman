@@ -55,6 +55,8 @@ class Voyage:
                 "stage": dict,          # {"name": str, "start": int, "end": int}
                 "today_done": bool,
                 "completed_days": int,
+                "streak": int,
+                "skip_tokens": int,
             }
         """
         tiles_revealed = self.state.get_tiles_revealed()
@@ -71,6 +73,8 @@ class Voyage:
             "stage": stage,
             "today_done": self.state.today_recorded(),
             "completed_days": self.state.get_completed_days(),
+            "streak": self.state.get_streak(),
+            "skip_tokens": self.state.get_available_skip_tokens(),
         }
 
     def get_daily_task(self) -> str:
@@ -163,6 +167,11 @@ class Voyage:
                 tiles_revealed += 1
             self.state.save_log(date_str, event["message"], event_type="event")
 
+        # 检查连击奖励：连击 7 天发放跳过令牌
+        streak = self.state.get_streak(date_str)
+        if streak == 7:
+            self.state.add_skip_token(date_str)
+
         return {
             "success": True,
             "message": "完成！推进了 1 格",
@@ -215,6 +224,58 @@ class Voyage:
         return {
             "success": True,
             "response": reply,
+            "error": None,
+        }
+
+    def skip(self, date_str=None) -> dict:
+        """使用跳过令牌跳过今日任务，不推进地图。
+
+        消耗一枚跳跃令牌记录今天的训练（维持连击），但不推进 tiles。
+        需要连续打卡 7 天方可获得一枚跳过令牌。
+
+        Args:
+            date_str: 日期字符串 (YYYY-MM-DD)，默认今天
+
+        Returns:
+            dict: {
+                "success": bool,
+                "message": str,
+                "tiles_revealed": int,
+                "log_entry": str | None,
+                "error": str | None,
+            }
+        """
+        if date_str is None:
+            date_str = date.today().isoformat()
+
+        # 检查是否有可用令牌
+        tokens = self.state.get_available_skip_tokens()
+        if tokens == 0:
+            return {
+                "success": False,
+                "message": "没有可用的跳过令牌。连续打卡 7 天可获得一枚。",
+                "tiles_revealed": self.state.get_tiles_revealed(),
+                "log_entry": None,
+                "error": "没有可用令牌",
+            }
+
+        # 使用一枚令牌
+        self.state.use_skip_token()
+
+        # 记录为跳过日（不推进 tiles）
+        self.state.record_day(date_str, completed=0, extra=0, used_skip=1)
+
+        # 生成跳过日志
+        log_entry = "今日使用跳过令牌。船队在避风港暂歇，连击得以延续。明日继续航行。"
+        self.state.save_log(date_str, log_entry)
+
+        remaining = self.state.get_available_skip_tokens()
+
+        return {
+            "success": True,
+            "message": f"已使用一枚跳过令牌。剩余令牌：{remaining} 枚",
+            "tiles_revealed": self.state.get_tiles_revealed(),
+            "log_entry": log_entry,
             "error": None,
         }
 

@@ -4,6 +4,7 @@
 - bestman init     初始化航行
 - bestman          仪表盘（默认）
 - bestman done     完成今日任务
+- bestman skip     使用跳过令牌
 - bestman log      查看航海日志
 - bestman talk     与 AI 导航员对话
 """
@@ -78,7 +79,15 @@ def _dashboard():
     # 今日任务
     if status["today_done"]:
         console.print("[bold green]今日任务已完成 ✓[/bold green]")
-    else:
+
+    # 连击和令牌
+    streak = status.get("streak", 0)
+    tokens = status.get("skip_tokens", 0)
+    streak_icons = f"[bold yellow]🔥 {streak} 天连击[/bold yellow]" if streak > 0 else "[dim]暂无连击[/dim]"
+    token_icons = f"[bold cyan]🎫 {tokens} 枚令牌[/bold cyan]" if tokens > 0 else "[dim]0 枚令牌[/dim]"
+    console.print(f"{streak_icons}  {token_icons}")
+
+    if not status["today_done"]:
         console.print(f"今日任务：[bold cyan]{voyage.get_daily_task()}[/bold cyan]")
 
     console.print()
@@ -100,6 +109,8 @@ def _dashboard():
     # 命令提示
     if not status["today_done"]:
         console.print("[dim]运行 [bold green]bestman done[/bold green] 完成今日任务[/dim]")
+        if tokens > 0:
+            console.print(f"[dim]运行 [bold cyan]bestman skip[/bold cyan] 使用令牌跳过（{tokens} 枚可用）[/dim]")
     else:
         console.print("[dim]明天再来！运行 [bold green]bestman done[/bold green] 继续航行[/dim]")
     console.print("[dim]运行 [bold green]bestman log[/bold green] 查看航海日志[/dim]")
@@ -195,6 +206,31 @@ def done():
             )
         )
         console.print()
+
+
+@main.command()
+def skip():
+    """使用跳过令牌，休息一天但不中断连击。
+
+    消耗一枚跳过令牌来记录今天的训练（不推进地图）。
+    连续打卡 7 天可获得一枚跳过令牌。
+    """
+    _require_init()
+
+    voyage = Voyage()
+    result = voyage.skip()
+
+    if not result["success"]:
+        console.print(f"[yellow]{result['error']}[/yellow]")
+        console.print("[dim]连续打卡 7 天即可获得一跳过令牌。[/dim]")
+        return
+
+    console.print()
+    console.print(f"[bold cyan]✓ {result['message']}[/bold cyan]")
+    console.print()
+    console.print(f"[dim]{result['log_entry']}[/dim]")
+    console.print()
+    console.print("[dim]连击已保，明天继续前行！[/dim]")
 
 
 @main.command()

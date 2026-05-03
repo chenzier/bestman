@@ -53,6 +53,9 @@ def mock_deps():
         mock_state.get_completed_days.return_value = 0
         mock_state.today_recorded.return_value = False
         mock_state.get_logs.return_value = []
+        mock_state.get_streak.return_value = 0
+        mock_state.get_available_skip_tokens.return_value = 0
+        mock_state.use_skip_token.return_value = False
         mock_state_cls.return_value = mock_state
 
         # Map engine mock
@@ -104,6 +107,8 @@ class TestVoyageInit:
         assert status["stage"]["name"] == "启航"
         assert status["today_done"] is False
         assert status["completed_days"] == 0
+        assert status["streak"] == 0
+        assert status["skip_tokens"] == 0
 
     def test_get_status_mid_voyage(self, mock_deps):
         """mid-voyage 状态。"""
@@ -280,6 +285,103 @@ class TestComplete:
         mock_deps["state"].save_log.assert_any_call(
             "2026-05-03", "鲸群挑战！", event_type="event"
         )
+
+
+class TestCompleteStreakAward:
+    """complete() 连击奖励测试。"""
+
+    def test_awards_token_on_streak_seven(self, mock_deps):
+        """连击达到 7 天时发放跳过令牌。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.return_value = 1
+        mock_deps["state"].get_streak.return_value = 7
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["success"] is True
+        mock_deps["state"].add_skip_token.assert_called_once_with("2026-05-03")
+
+    def test_no_token_below_streak_seven(self, mock_deps):
+        """连击不足 7 天时不发放令牌。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.return_value = 1
+        mock_deps["state"].get_streak.return_value = 6
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["success"] is True
+        mock_deps["state"].add_skip_token.assert_not_called()
+
+
+class TestSkip:
+    """skip() 测试。"""
+
+    def test_skip_success(self, mock_deps):
+        """使用令牌跳过成功。"""
+        mock_deps["state"].get_available_skip_tokens.return_value = 2
+        mock_deps["state"].use_skip_token.return_value = True
+        mock_deps["state"].get_tiles_revealed.return_value = 5
+
+        voyage = Voyage()
+        result = voyage.skip("2026-05-03")
+
+        assert result["success"] is True
+        assert "已使用一枚跳过令牌" in result["message"]
+        assert "剩余令牌" in result["message"]
+        assert result["tiles_revealed"] == 5
+        assert result["log_entry"] is not None
+        assert result["error"] is None
+
+        # 验证调用
+        mock_deps["state"].use_skip_token.assert_called_once()
+        mock_deps["state"].record_day.assert_called_once_with(
+            "2026-05-03", completed=0, extra=0, used_skip=1
+        )
+        mock_deps["state"].save_log.assert_called_once()
+
+    def test_skip_no_tokens(self, mock_deps):
+        """无可用令牌时 skip 失败。"""
+        mock_deps["state"].get_available_skip_tokens.return_value = 0
+        mock_deps["state"].get_tiles_revealed.return_value = 5
+
+        voyage = Voyage()
+        result = voyage.skip("2026-05-03")
+
+        assert result["success"] is False
+        assert result["error"] == "没有可用令牌"
+        mock_deps["state"].use_skip_token.assert_not_called()
+        mock_deps["state"].record_day.assert_not_called()
+
+    def test_skip_does_not_advance_tiles(self, mock_deps):
+        """跳过不推进地图（completed=0）。"""
+        mock_deps["state"].get_available_skip_tokens.return_value = 1
+        mock_deps["state"].use_skip_token.return_value = True
+        mock_deps["state"].get_tiles_revealed.return_value = 5
+
+        voyage = Voyage()
+        result = voyage.skip("2026-05-03")
+
+        assert result["tiles_revealed"] == 5  # 不变
+        mock_deps["state"].record_day.assert_called_with(
+            "2026-05-03", completed=0, extra=0, used_skip=1
+        )
+
+    def test_skip_default_date(self, mock_deps):
+        """不传 date_str 时使用今天。"""
+        mock_deps["state"].get_available_skip_tokens.return_value = 1
+        mock_deps["state"].use_skip_token.return_value = True
+        mock_deps["state"].get_tiles_revealed.return_value = 0
+
+        voyage = Voyage()
+        result = voyage.skip()
+
+        today = date.today().isoformat()
+        mock_deps["state"].record_day.assert_called_with(
+            today, completed=0, extra=0, used_skip=1
+        )
+        assert result["success"] is True
 
 
 class TestGetLogs:

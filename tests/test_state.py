@@ -44,6 +44,15 @@ class TestRecordDay:
         ).fetchone()
         assert row == (1, 2, "死虫式 3×10")
 
+    def test_record_day_with_used_skip(self, state):
+        """used_skip=1 记录跳过日，不推进 tiles。"""
+        state.record_day("2026-05-03", completed=0, extra=0, used_skip=1)
+        row = state.conn.execute(
+            "SELECT completed, used_skip FROM days WHERE date='2026-05-03'"
+        ).fetchone()
+        assert row == (0, 1)
+        assert state.get_tiles_revealed() == 0
+
 
 class TestTodayRecorded:
     def test_returns_false_for_unrecorded_date(self, state):
@@ -81,6 +90,95 @@ class TestGetCompletedDays:
         state.record_day("2026-05-03", completed=1, extra=0, task_done="done")
         state.record_day("2026-05-04", completed=1, extra=0, task_done="done")
         assert state.get_completed_days() == 2
+
+
+class TestGetStreak:
+    """get_streak() 测试。"""
+
+    def test_streak_zero_when_no_days(self, state):
+        assert state.get_streak("2026-05-03") == 0
+
+    def test_streak_single_day(self, state):
+        state.record_day("2026-05-03", completed=1)
+        assert state.get_streak("2026-05-03") == 1
+
+    def test_streak_consecutive_days(self, state):
+        for i in range(5):
+            state.record_day(f"2026-05-{i + 3:02d}", completed=1)
+        assert state.get_streak("2026-05-07") == 5
+
+    def test_streak_breaks_on_missed_day(self, state):
+        state.record_day("2026-05-03", completed=1)
+        state.record_day("2026-05-04", completed=1)
+        # 跳过 05-05
+        state.record_day("2026-05-06", completed=1)
+        assert state.get_streak("2026-05-06") == 1  # only 05-06 counts
+
+    def test_streak_includes_skip_days(self, state):
+        """used_skip=1 的天也计入连击。"""
+        state.record_day("2026-05-03", completed=1)
+        state.record_day("2026-05-04", completed=0, used_skip=1)
+        state.record_day("2026-05-05", completed=1)
+        assert state.get_streak("2026-05-05") == 3
+
+    def test_streak_gap_from_reference(self, state):
+        """最晚记录和 reference_date 间隔超过 1 天时返回 0。"""
+        state.record_day("2026-05-03", completed=1)
+        state.record_day("2026-05-04", completed=1)
+        assert state.get_streak("2026-05-07") == 0
+
+    def test_streak_defaults_to_today(self, state):
+        """默认 reference_date 为今天。"""
+        # 没记录时 streak=0
+        assert state.get_streak() == 0
+
+    def test_streak_scattered_non_consecutive(self, state):
+        """非连续日期只计入最近的连续链。"""
+        state.record_day("2026-05-01", completed=1)
+        state.record_day("2026-05-02", completed=1)
+        state.record_day("2026-05-04", completed=1)
+        state.record_day("2026-05-05", completed=1)
+        assert state.get_streak("2026-05-05") == 2  # 只有 05-04, 05-05
+
+
+class TestSkipTokens:
+    """skip_tokens 表相关测试。"""
+
+    def test_migrate_creates_table(self, state):
+        cursor = state.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='skip_tokens'"
+        )
+        assert cursor.fetchone() is not None
+
+    def test_get_available_skip_tokens_zero(self, state):
+        assert state.get_available_skip_tokens() == 0
+
+    def test_add_and_get_tokens(self, state):
+        state.add_skip_token("2026-05-03")
+        state.add_skip_token("2026-05-10")
+        assert state.get_available_skip_tokens() == 2
+
+    def test_use_skip_token_success(self, state):
+        state.add_skip_token("2026-05-03")
+        assert state.use_skip_token() is True
+        assert state.get_available_skip_tokens() == 0
+
+    def test_use_skip_token_no_tokens(self, state):
+        assert state.use_skip_token() is False
+
+    def test_multiple_tokens_use_one(self, state):
+        state.add_skip_token("2026-05-03")
+        state.add_skip_token("2026-05-10")
+        assert state.use_skip_token() is True
+        assert state.get_available_skip_tokens() == 1
+
+    def test_double_migrate_is_idempotent(self, state):
+        """第二次调用 _migrate 不会报错。"""
+        state._migrate()  # 不应抛异常
+        cursor = state.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='skip_tokens'"
+        )
+        assert cursor.fetchone() is not None
 
 
 class TestSaveLog:
