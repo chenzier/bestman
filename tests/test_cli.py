@@ -306,6 +306,7 @@ class TestDoneCommand:
                 "breakdown": {"每日打卡": 10, "暴风加成": 5},
             },
             "treasures": [],
+            "dice": {"distance": 1, "description": "风平浪静", "extra_tiles": 0},
         }
 
         result = runner.invoke(main, ["done"])
@@ -339,6 +340,7 @@ class TestDoneCommand:
                     "message": "你发现了一艘古代沉船！",
                 },
             ],
+            "dice": {"distance": 1, "description": "风平浪静", "extra_tiles": 0},
         }
 
         result = runner.invoke(main, ["done"])

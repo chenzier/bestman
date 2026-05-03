@@ -4,7 +4,7 @@
 """
 
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -880,7 +880,7 @@ class TestCompleteWithDistance:
         assert result["dice"]["extra_tiles"] == 2
         assert "航行 4 海里" in result["message"]
         mock_deps["state"].record_day.assert_any_call(
-            "2026-05-03", completed=4, extra=0
+            "2026-05-03", completed=4, extra=0, coins_earned=ANY
         )
 
     def test_complete_with_distance_duplicate_rejected(self, mock_deps):
