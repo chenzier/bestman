@@ -1,153 +1,381 @@
-"""Segmented map engine with theme support.
+"""2D world map engine for bestman.
 
-Renders a voyage map as stacked stage progress bars instead of a 175-tile grid.
-Each stage is a single row showing progress within that segment.
+Renders a 50×14 grid with a predefined voyage route, fog of war,
+region terrain characters, milestone markers, and ship position.
 """
 
+import math
 import random
 
 from bestman.themes import get_theme
 
-BAR_WIDTH = 25
+# Grid constants
+GRID_WIDTH = 50
+GRID_HEIGHT = 14
+
+# How many route tiles ahead of the ship to show as preview
+FUTURE_VISIBLE = 10
+# How many tiles behind the ship count as "near wake" (bold styling)
+NEAR_WAKE = 5
+
+# Fog defaults
+FOG_CHAR = "\u2592"   # ▒
+FOG_STYLE = "dim blue"
+
+# Future route preview
+PREVIEW_CHAR = "\u2218"  # ∘
+PREVIEW_STYLE = "blue"
+
+# Ship icon
+SHIP_CHAR = "\u2693"   # ⚓
+SHIP_STYLE = "bold yellow"
+
+# Finish flag
+FINISH_CHAR = "\U0001f3c1"  # 🏁
+FINISH_STYLE = "bold green"
+
+# Milestone marker
+MILESTONE_CHAR = "\u2726"  # ✦
+MILESTONE_STYLE = "bold magenta"
+
+# Region terrain: maps stage name → (character, base_color)
+STAGE_TERRAIN = {
+    "启航": ("~", "cyan"),
+    "迷雾之海": ("\u2592", "white"),
+    "季风带": ("\u2248", "green"),
+    "贸易航线": ("\u223f", "yellow"),
+    "赤道无风带": ("\u2014", "yellow"),
+    "信风带": ("/", "blue"),
+    "新大陆近海": ("~", "cyan"),
+}
 
 
 class MapEngine:
-    """Segmented map renderer.
+    """2D world map renderer.
 
-    Takes a list of stages and renders them as progress bars.
-    Shows completed stages + current stage + next stage (at most).
+    Renders a voyage map as a 50×14 grid. The route is a predefined
+    sequence of 175 (x, y) coordinates generated from stage definitions.
     """
 
-    def __init__(self, stages=None, milestones=None, theme="naval"):
-        """
-        Args:
-            stages: List of stage dicts from config, each with "name" and "days" [start, end].
-                    Both start and end are 1-based day numbers.
-            milestones: Dict mapping 0-based tile index to milestone name.
-            theme: Theme name string ("naval" or "cultivation").
-        """
-        self.stages = stages or []
-        self.milestones = milestones or {}
-        self.theme = get_theme(theme)
-        self._bar_width = BAR_WIDTH
-
-        # Compute total_days from last stage
-        if self.stages:
-            self.total_days = self.stages[-1]["days"][1]
-        else:
-            self.total_days = 175
-
-    def get_current_stage(self, tiles_revealed):
-        """Return all stage sections relevant for rendering.
-
-        tiles_revealed is a 0-based count of revealed tiles (ship position in 0-based grid).
-        stages use 1-based day numbers in config, so we convert to 0-based for comparison.
-
-        Returns (completed_stages, current_stage, next_stage, current_stage_idx).
-        """
-        current_day = tiles_revealed  # 0-based; ship is at this tile index
-
-        current_stage_idx = None
-        for i, stage in enumerate(self.stages):
-            _start, _end = stage["days"]
-            # Convert 1-based stage boundaries to 0-based tile indices
-            if _start - 1 <= current_day <= _end - 1:
-                current_stage_idx = i
-                break
-
-        if current_stage_idx is None:
-            if not self.stages:
-                # No stages configured — treat everything as one big stage
-                return [], {"name": "航程", "days": [1, self.total_days]}, None, 0
-            if current_day < self.stages[0]["days"][0]:
-                current_stage_idx = 0
-            else:
-                current_stage_idx = len(self.stages) - 1
-
-        completed = self.stages[:current_stage_idx]
-        current = self.stages[current_stage_idx]
-        nxt = self.stages[current_stage_idx + 1] if current_stage_idx + 1 < len(self.stages) else None
-
-        return completed, current, nxt, current_stage_idx
-
-    def render(self, tiles_revealed=0):
-        """Render segmented progress bars.
+    def __init__(self, config):
+        """Initialise the 2D map engine.
 
         Args:
-            tiles_revealed: 0-based count of revealed tiles (from state).
+            config: Full bestman configuration dict, containing:
+                - map.width, map.height (grid dimensions)
+                - voyage.stages (7 stages with 1-based day ranges)
+                - voyage.milestones (day → name mapping)
+                - voyage.theme (theme name string)
+        """
+        map_cfg = config.get("map", {})
+        self.width = map_cfg.get("width", GRID_WIDTH)
+        self.height = map_cfg.get("height", GRID_HEIGHT)
+        self.stages = config.get("voyage", {}).get("stages", [])
+        self.milestones = config.get("voyage", {}).get("milestones", {})
+        self.theme_name = config.get("voyage", {}).get("theme", "naval")
+        self._theme = get_theme(self.theme_name)
+
+        # Generate route from stage definitions
+        self._route = self._generate_route()
+        self.total_days = len(self._route) if self._route else 175
+
+        # Build milestone lookup: 0-based tile index → name
+        self._milestone_tiles = {}
+        milestones = self.milestones
+        if milestones:
+            for day, name in milestones.items():
+                tile_idx = day - 1
+                if 0 <= tile_idx < self.total_days:
+                    self._milestone_tiles[tile_idx] = name
+
+    # ── route generation ──────────────────────────────────────────
+
+    def _generate_route(self):
+        """Generate route coordinates from stage definitions.
+
+        Uses a step-by-step walk that guarantees every tile maps to a
+        distinct grid cell. The overall shape follows stage-specific
+        sinusoidal patterns for visual variety, moving generally
+        left-to-right across the grid.
 
         Returns:
-            Rich markup string with one row per visible stage.
+            list of (x, y) tuples, one per tile (175 total).
         """
         if not self.stages:
-            return "[dim]No stages configured[/dim]"
+            return self._fallback_route()
 
-        completed, current, nxt, _ = self.get_current_stage(tiles_revealed)
+        route = []
+        # Scale starting position to grid height
+        start_y = max(1, min(self.height - 2, 10))
+        px, py = 2, start_y
+        route.append((px, py))
+        used = {(px, py)}
 
+        for stage_idx, stage in enumerate(self.stages):
+            start_day, end_day = stage["days"]
+            n = end_day - start_day + 1
+
+            for i in range(n):
+                tile_idx = start_day - 1 + i
+
+                if tile_idx == 0:
+                    continue
+
+                t = tile_idx / 174.0
+                target_x = int(round(2 + t * 46))
+                local_t = (tile_idx - (start_day - 1)) / max(1, n - 1)
+                target_y = int(round(self._stage_y(stage_idx, local_t)))
+                target_y = max(1, min(self.height - 2, target_y))
+
+                # Pick next step: prefer moving toward target, avoid used cells
+                nx, ny = self._next_step(px, py, target_x, target_y, used)
+
+                route.append((nx, ny))
+                used.add((nx, ny))
+                px, py = nx, ny
+
+        return route
+
+    def _next_step(self, px, py, target_x, target_y, used):
+        """Compute the next grid cell toward (target_x, target_y).
+
+        Prefers moves that advance toward the target while avoiding
+        already-visited cells. Tries candidates in priority order.
+        """
+        candidates = []
+
+        dx = target_x - px
+        dy = target_y - py
+
+        if dx > 0:
+            # Priority: right, right+up, right+down, up, down
+            candidates = [(px + 1, py), (px + 1, py + 1), (px + 1, py - 1),
+                          (px, py + 1), (px, py - 1)]
+        elif dx < 0:
+            # Behind target x — move vertically or force right
+            candidates = [(px, py + 1), (px, py - 1), (px + 1, py),
+                          (px + 1, py + 1), (px + 1, py - 1)]
+        else:
+            # Same column — move vertically toward target, or right
+            if dy > 0:
+                candidates = [(px, py + 1), (px + 1, py + 1), (px + 1, py),
+                              (px + 1, py - 1), (px, py - 1)]
+            elif dy < 0:
+                candidates = [(px, py - 1), (px + 1, py - 1), (px + 1, py),
+                              (px + 1, py + 1), (px, py + 1)]
+            else:
+                candidates = [(px + 1, py), (px, py + 1), (px, py - 1),
+                              (px + 1, py + 1), (px + 1, py - 1)]
+
+        for cx, cy in candidates:
+            cx = max(0, min(self.width - 1, cx))
+            cy = max(0, min(self.height - 1, cy))
+            if (cx, cy) not in used:
+                return (cx, cy)
+
+        # Fallback: any adjacent unused cell
+        for dx2 in (1, 0, -1):
+            for dy2 in (1, 0, -1):
+                cx, cy = px + dx2, py + dy2
+                cx = max(0, min(self.width - 1, cx))
+                cy = max(0, min(self.height - 1, cy))
+                if (cx, cy) not in used:
+                    return (cx, cy)
+
+        # Shouldn't happen: no unused adjacent cells
+        return (px + 1, py)  # force right
+
+    def _fallback_route(self):
+        """Generate a simple zigzag route when no stages are configured."""
+        route = [(2, 10)]
+        px, py = 2, 10
+        direction = 1
+        for i in range(1, 175):
+            t = i / 174.0
+            target_x = int(round(2 + t * 46))
+            if target_x > px:
+                px = target_x
+                py = max(1, min(12, py + direction))
+                direction *= -1
+            else:
+                py = max(1, min(12, py + direction))
+            route.append((px, py))
+        return route
+
+    def _stage_y(self, stage_idx, local_t):
+        """Compute y-coordinate for a point within a stage.
+
+        Each stage uses a different wave pattern for visual variety.
+        local_t ranges from 0.0 (stage start) to 1.0 (stage end).
+        """
+        if stage_idx == 0:  # 启航: gentle departure from port
+            return 10 - local_t * 2.5 + 0.5 * math.sin(local_t * math.pi * 1.5)
+        elif stage_idx == 1:  # 迷雾之海: erratic wandering through fog
+            return 7.5 - local_t * 1.5 + 2.5 * math.sin(local_t * math.pi * 4)
+        elif stage_idx == 2:  # 季风带: steady push upward
+            return 6 - local_t * 3.5 + math.sin(local_t * math.pi * 2.5)
+        elif stage_idx == 3:  # 贸易航线: gentle meander
+            return 2.5 + local_t * 3 + math.sin(local_t * math.pi * 3)
+        elif stage_idx == 4:  # 赤道无风带: slow drift
+            return 5.5 + local_t * 1 + 2 * math.sin(local_t * math.pi * 2)
+        elif stage_idx == 5:  # 信风带: fast straight push
+            return 6.5 - local_t * 2
+        elif stage_idx == 6:  # 新大陆近海: approach to land
+            return 4.5 - local_t * 1 + 2 * math.sin(local_t * math.pi * 5)
+        return 7  # fallback
+
+    # ── position / region queries ─────────────────────────────────
+
+    def get_current_position(self, tiles_revealed):
+        """Return the (x, y) coordinate of the ship.
+
+        Args:
+            tiles_revealed: Number of tiles revealed so far (0-based count).
+
+        Returns:
+            (x, y) tuple, or None if the route is empty.
+        """
+        if not self._route:
+            return None
+        idx = min(tiles_revealed, self.total_days - 1)
+        return self._route[idx]
+
+    def get_region_at(self, tiles_revealed):
+        """Return the region name at the current tile position.
+
+        Args:
+            tiles_revealed: Number of tiles revealed so far.
+
+        Returns:
+            Region name string (e.g. "贸易航线").
+        """
+        if tiles_revealed <= 0:
+            return self.stages[0]["name"] if self.stages else "未知"
+        tile_idx = min(tiles_revealed - 1, self.total_days - 1)
+        return self._stage_for_tile(tile_idx)["name"]
+
+    def _stage_for_tile(self, tile_idx):
+        """Return the stage dict for a 0-based tile index."""
+        for stage in self.stages:
+            start, end = stage["days"]
+            if start - 1 <= tile_idx <= end - 1:
+                return stage
+        return {"name": "未知"}
+
+    def _terrain_for_tile(self, tile_idx):
+        """Get (character, color) for the terrain at a route tile."""
+        stage = self._stage_for_tile(tile_idx)
+        return STAGE_TERRAIN.get(stage["name"], ("~", "cyan"))
+
+    # ── rendering ─────────────────────────────────────────────────
+
+    def render(self, tiles_revealed=0):
+        """Render the full 2D map grid.
+
+        Args:
+            tiles_revealed: Number of tiles revealed (0-based count
+                            from state, maps to route index for ship).
+
+        Returns:
+            Rich markup string with the full grid.
+        """
+        # Clamp tiles_revealed to valid range
+        tiles_revealed = max(0, min(tiles_revealed, self.total_days))
+
+        # Build grid: each cell is (char, style)
+        grid = [[(FOG_CHAR, FOG_STYLE) for _ in range(self.width)]
+                for _ in range(self.height)]
+
+        # Draw walked route
+        walked_count = min(tiles_revealed, self.total_days)
+        for i in range(walked_count):
+            x, y = self._route[i]
+            if not (0 <= x < self.width and 0 <= y < self.height):
+                continue
+            char, color = self._terrain_for_tile(i)
+            dist_behind = tiles_revealed - i
+            if dist_behind <= NEAR_WAKE:
+                style = f"bold {color}"
+            else:
+                style = f"dim {color}"
+            grid[y][x] = (char, style)
+
+        # Draw future route preview (next FUTURE_VISIBLE tiles)
+        preview_start = tiles_revealed + 1
+        preview_end = min(preview_start + FUTURE_VISIBLE, self.total_days)
+        for i in range(preview_start, preview_end):
+            x, y = self._route[i]
+            if not (0 <= x < self.width and 0 <= y < self.height):
+                continue
+            if i in self._milestone_tiles:
+                grid[y][x] = (MILESTONE_CHAR, MILESTONE_STYLE)
+            else:
+                grid[y][x] = (PREVIEW_CHAR, PREVIEW_STYLE)
+
+        # Place milestone markers on walked route
+        for mile_tile in self._milestone_tiles:
+            if mile_tile < tiles_revealed:
+                x, y = self._route[mile_tile]
+                if 0 <= x < self.width and 0 <= y < self.height:
+                    grid[y][x] = (MILESTONE_CHAR, MILESTONE_STYLE)
+
+        # Place ship or finish flag
+        if not self._route:
+            pass  # No route, nothing to place
+        elif tiles_revealed >= self.total_days:
+            # Voyage complete
+            x, y = self._route[-1]
+            if 0 <= x < self.width and 0 <= y < self.height:
+                grid[y][x] = (FINISH_CHAR, FINISH_STYLE)
+        else:
+            # Ship at current position
+            x, y = self._route[tiles_revealed]
+            if 0 <= x < self.width and 0 <= y < self.height:
+                grid[y][x] = (SHIP_CHAR, SHIP_STYLE)
+
+        # Build Rich markup
         lines = []
-
-        # Show only the most recent completed stage (keep rows minimal)
-        if completed:
-            lines.append(self._render_completed(completed[-1]))
-
-        # Current stage
-        lines.append(self._render_current(current, tiles_revealed))
-
-        # Next stage (locked)
-        if nxt:
-            lines.append(self._render_locked(nxt))
+        for row in grid:
+            parts = []
+            for char, style in row:
+                parts.append(f"[{style}]{char}[/]")
+            lines.append("".join(parts))
 
         return "\n".join(lines)
 
-    def _stage_display_name(self, stage):
-        """Get themed display name for a stage."""
-        return self.theme.stage_display_name(stage["name"])
+    def get_current_stage(self, tiles_revealed):
+        """Return stage sections for interface compatibility.
 
-    def _revealed_in_stage(self, stage, tiles_revealed):
-        """How many tiles have been revealed within this stage."""
-        _start = stage["days"][0]
-        _end = stage["days"][1]
-        stage_tiles = _end - _start + 1
-        revealed = tiles_revealed - _start + 1
-        return max(0, min(stage_tiles, revealed))
+        Preserved for any remaining callers. Returns the current stage
+        name alongside stage metadata.
+        """
+        # Ship is at tile index = tiles_revealed
+        current_idx = None
+        for i, stage in enumerate(self.stages):
+            s, e = stage["days"]
+            if s - 1 <= tiles_revealed <= e - 1:
+                current_idx = i
+                break
 
-    def _render_completed(self, stage):
-        """Render a filled progress bar for a completed stage."""
-        name = self._stage_display_name(stage)
-        bar = self.theme.completed_bar(self._bar_width)
-        status = f"{self.theme.tiles.complete_markup} 完成"
-        return f"{name:<8}  {bar}  {status}"
+        if current_idx is None:
+            if not self.stages:
+                return [], {"name": "航程", "days": [1, self.total_days]}, None, 0
+            current_idx = max(0, min(len(self.stages) - 1,
+                                     sum(1 for _ in self.stages)))
+            # Clamp to first or last
+            if tiles_revealed < 0:
+                current_idx = 0
+            else:
+                current_idx = len(self.stages) - 1
 
-    def _render_current(self, stage, tiles_revealed):
-        """Render the currently active stage bar."""
-        name = self._stage_display_name(stage)
-        stage_tiles = stage["days"][1] - stage["days"][0] + 1
-        revealed = self._revealed_in_stage(stage, tiles_revealed)
+        completed = self.stages[:current_idx]
+        current = self.stages[current_idx]
+        nxt = self.stages[current_idx + 1] if current_idx + 1 < len(self.stages) else None
 
-        chars = []
-        for pos in range(self._bar_width):
-            chars.append(
-                self.theme.bar_fill(pos, self._bar_width, revealed, stage_tiles)
-            )
-        bar = "".join(chars)
-
-        # Check for completion — if all tiles revealed, show finish/checkmark
-        if revealed >= stage_tiles and revealed > 0:
-            status = f"{self.theme.tiles.complete_markup} 完成"
-        else:
-            status = f"{revealed}/{stage_tiles}"
-
-        return f"{name:<8}  {bar}  {status}"
-
-    def _render_locked(self, stage):
-        """Render a locked (unreached) stage bar."""
-        name = self._stage_display_name(stage)
-        bar = self.theme.locked_bar(self._bar_width)
-        status = f"{self.theme.tiles.lock_markup} 即将解锁"
-        return f"{name:<8}  {bar}  {status}"
+        return completed, current, nxt, current_idx
 
 
-# ── voyage log templates (unchanged) ──
+# ── voyage log templates ──────────────────────────────────────────
 
 VOYAGE_LOG_TEMPLATES = [
     "晨光洒在甲板上，bestman 号缓缓驶出港口。水手们精神抖擞，风帆鼓满西风。前方是未知的海洋——但今天，我们只需要航行这一格。",

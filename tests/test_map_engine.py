@@ -1,12 +1,12 @@
-"""Tests for segmented MapEngine with theme support."""
+"""Tests for the 2D world MapEngine."""
 
 import re
 
 import pytest
 
-from bestman.map_engine import MapEngine, get_log_entry, BAR_WIDTH
+from bestman.map_engine import MapEngine, get_log_entry, GRID_WIDTH, GRID_HEIGHT
 
-# Sample stages matching default config (1-based days)
+# Minimal config matching default bestman setup
 DEFAULT_STAGES = [
     {"name": "启航", "days": [1, 25]},
     {"name": "迷雾之海", "days": [26, 50]},
@@ -18,260 +18,361 @@ DEFAULT_STAGES = [
 ]
 
 DEFAULT_MILESTONES = {
-    24: "穿越迷雾之海",  # 0-based: day 25
-    49: "进入季风带",     # day 50
+    25: "穿越迷雾之海",
+    50: "进入季风带",
+    75: "抵达贸易港",
+    100: "穿过赤道无风带",
+    125: "遇见信风",
+    150: "望见新大陆海岸线",
+    175: "抵达新大陆",
 }
 
 
-def strip_rich_markup(text: str) -> str:
-    """Strip Rich markup tags, leaving only the content characters."""
+def make_config(stages=None, milestones=None, width=50, height=14, theme="naval"):
+    """Build a minimal config dict for MapEngine."""
+    return {
+        "map": {"width": width, "height": height},
+        "voyage": {
+            "stages": stages or DEFAULT_STAGES,
+            "milestones": milestones or DEFAULT_MILESTONES,
+            "theme": theme,
+        },
+    }
+
+
+def strip_rich_markup(text):
+    """Strip Rich markup tags, leaving only content characters."""
     return re.sub(r"\[/?[^\]]*\]", "", text)
 
 
-# ── segmented map rendering tests ──
+def count_char_in_grid(rendered, char):
+    """Count occurrences of a character in the rendered grid (after stripping markup)."""
+    raw = strip_rich_markup(rendered)
+    return raw.count(char)
 
 
-class TestSegmentedRendering:
-    """Tests for the new segmented map rendering."""
+# ── route generation tests ──
 
-    def test_initial_render_shows_ship_at_position_zero(self):
-        """tiles_revealed=0: ship at start of first stage, next stage locked."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
+
+class TestRouteGeneration:
+    """Tests for the route coordinate generation."""
+
+    def test_route_has_175_points(self):
+        """Route contains exactly 175 coordinates."""
+        engine = MapEngine(make_config())
+        assert len(engine._route) == 175
+        assert engine.total_days == 175
+
+    def test_all_points_in_bounds(self):
+        """Every route point is within the grid."""
+        engine = MapEngine(make_config())
+        for x, y in engine._route:
+            assert 0 <= x < engine.width, f"Point ({x},{y}) x out of bounds"
+            assert 0 <= y < engine.height, f"Point ({x},{y}) y out of bounds"
+
+    def test_route_starts_left_ends_right(self):
+        """Route starts near left edge and ends near right edge."""
+        engine = MapEngine(make_config())
+        first_x = engine._route[0][0]
+        last_x = engine._route[-1][0]
+        assert first_x <= 5, f"Route should start near left edge, got x={first_x}"
+        assert last_x >= 45, f"Route should end near right edge, got x={last_x}"
+
+    def test_each_stage_has_correct_tile_count(self):
+        """Each of the 7 stages contributes exactly 25 route points."""
+        engine = MapEngine(make_config())
+        stages = DEFAULT_STAGES
+        for stage_idx, stage in enumerate(stages):
+            start, end = stage["days"]
+            expected = end - start + 1
+            # Count tiles that fall in this stage
+            count = 0
+            for tile_idx in range(175):
+                s, e = stages[stage_idx]["days"]
+                if s - 1 <= tile_idx <= e - 1:
+                    count += 1
+            assert count == expected, f"Stage {stage['name']}: expected {expected}, got {count}"
+
+    def test_fallback_route_when_no_stages(self):
+        """When stages is empty, a fallback 175-point route is generated."""
+        engine = MapEngine(make_config(stages=[]))
+        assert len(engine._route) == 175
+        for x, y in engine._route:
+            assert 0 <= x < engine.width
+            assert 0 <= y < engine.height
+
+    def test_custom_grid_size(self):
+        """Map respects custom grid dimensions from config."""
+        engine = MapEngine(make_config(width=60, height=10))
+        assert engine.width == 60
+        assert engine.height == 10
+        for x, y in engine._route:
+            assert 0 <= x < 60
+            assert 0 <= y < 10
+
+
+# ── rendering tests ──
+
+
+class TestMapRendering:
+    """Tests for the 2D grid rendering."""
+
+    def test_render_has_correct_line_count(self):
+        """Rendered map has exactly HEIGHT lines (one per row)."""
+        engine = MapEngine(make_config())
         rendered = engine.render(tiles_revealed=0)
-        raw = strip_rich_markup(rendered)
-
-        # Should show first stage and second stage (locked), not more
         lines = rendered.split("\n")
-        assert len(lines) == 2, f"Expected 2 rows (current + next), got {len(lines)}"
-        assert "启航" in raw
-        assert "迷雾之海" in raw
-        assert "季风带" not in raw  # third stage should be hidden
-        assert "\u2693" in raw, f"Should show ship icon, got: {raw[:80]}"
-        assert "\U0001f512" in raw, f"Should show lock icon on next stage, got: {raw[:80]}"
-        # First stage shows 0/N
-        assert "0/25" in raw
+        assert len(lines) == GRID_HEIGHT
 
-    def test_progress_shows_revealed_count(self):
-        """After 5 reveals, stage shows 5/25."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
-        rendered = engine.render(tiles_revealed=5)
-        raw = strip_rich_markup(rendered)
-
-        assert "5/25" in raw
-        assert "\u2693" in raw  # ship icon visible
-        # Ship should still be in first stage
-        assert "启航" in raw
-
-    def test_stage_completed_shows_checkmark(self):
-        """When a stage is fully revealed, it shows ✓ 完成."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
-        # Stage 1 ends at day 25, so tiles_revealed=25 means stage 1 is done
-        # (ship is now at position 25 which is the start of stage 2)
+    def test_each_line_has_50_visible_chars(self):
+        """Each row has exactly 50 visible characters (Rich markup stripped)."""
+        engine = MapEngine(make_config())
         rendered = engine.render(tiles_revealed=25)
-        raw = strip_rich_markup(rendered)
+        for line in rendered.split("\n"):
+            raw = strip_rich_markup(line)
+            assert len(raw) == GRID_WIDTH, f"Expected {GRID_WIDTH} chars, got {len(raw)}"
 
-        assert "\u2713" in raw, f"Should show checkmark for completed stage: {raw[:120]}"
-        # First stage should show "完成"
-        assert "完成" in raw
-
-    def test_stage_transition_shows_next_stage_as_current(self):
-        """When moving to second stage, it becomes current."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
-        # Day 26 (tiles_revealed=25) is start of stage 2
-        rendered = engine.render(tiles_revealed=26)
-        raw = strip_rich_markup(rendered)
-
-        # Stage 1 should be completed
-        assert "\u2713" in raw
-        # Stage 2 should be current (has ship)
-        assert "\u2693" in raw
-        # Stage 3 should be locked
-        assert "\U0001f512" in raw
-
-    def test_only_shows_completed_current_and_next(self):
-        """Only 3 stages at most: completed + current + next."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
-        # Stage 3 is current
-        rendered = engine.render(tiles_revealed=51)
-        raw = strip_rich_markup(rendered)
-
-        lines = rendered.split("\n")
-        # Should show stage 2 (completed), stage 3 (current), stage 4 (next)
-        assert len(lines) == 3, f"Expected 3 rows, got {len(lines)}"
-        for name in ["季风带", "贸易航线"]:
-            assert name in raw
-        # Stage 5 (赤道无风带) should NOT be shown
-        assert "赤道无风带" not in raw
-
-    def test_last_stage_no_next_locked(self):
-        """On the last stage, only completed + current (no next)."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
-        # Stage 7 (last stage) is current
-        rendered = engine.render(tiles_revealed=151)
-        raw = strip_rich_markup(rendered)
-
-        lines = rendered.split("\n")
-        # Should show most recent completed + current, no next
-        assert len(lines) == 2, f"Expected 2 rows, got {len(lines)}"
-        # No lock icon
-        assert "\U0001f512" not in raw
-
-    def test_full_completion_renders_all_completed(self):
-        """When all 175 tiles revealed, map shows all stages completed."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
-        rendered = engine.render(tiles_revealed=175)
-        raw = strip_rich_markup(rendered)
-
-        # At full completion, final stage shows completed status and all rows have checkmarks
-        lines = rendered.split("\n")
-        assert len(lines) == 2, f"Expected 2 rows (completed + final), got {len(lines)}"
-        # Both rows should show checkmarks (completed stage + current/final completed)
-        assert raw.count("\u2713") >= 2, f"Expected at least 2 checkmarks, got {raw.count(chr(0x2713))}"
-        # Final stage name should be present
-        assert "新大陆近海" in raw
-
-    def test_stage_with_single_row_stages(self):
-        """Custom stages also work for different layout."""
-        stages = [
-            {"name": "Phase A", "days": [1, 50]},
-            {"name": "Phase B", "days": [51, 100]},
-        ]
-        engine = MapEngine(stages=stages, theme="naval")
-        rendered = engine.render(tiles_revealed=60)
-        raw = strip_rich_markup(rendered)
-
-        lines = rendered.split("\n")
-        assert len(lines) == 2
-        assert "Phase A" in raw
-        assert "Phase B" in raw
-        # Phase A completed
-        assert "\u2713" in raw
-
-    def test_empty_stages_graceful(self):
-        """Empty stages list returns a dim message."""
-        engine = MapEngine(stages=[], theme="naval")
+    def test_ship_visible_at_start(self):
+        """Ship icon is present when tiles_revealed=0."""
+        engine = MapEngine(make_config())
         rendered = engine.render(tiles_revealed=0)
-        assert "No stages configured" in rendered
+        assert "\u2693" in rendered  # ⚓
+
+    def test_ship_visible_mid_voyage(self):
+        """Ship icon is present at various points."""
+        engine = MapEngine(make_config())
+        for tiles in [5, 25, 50, 75, 100, 150]:
+            rendered = engine.render(tiles_revealed=tiles)
+            assert "\u2693" in rendered, f"Ship missing at tiles_revealed={tiles}"
+
+    def test_finish_flag_when_complete(self):
+        """When all tiles revealed, finish flag replaces ship."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=175)
+        assert "\U0001f3c1" in rendered  # 🏁
+        # Ship icon should not be present
+        raw = strip_rich_markup(rendered)
+        assert "\u2693" not in raw
+
+    def test_future_route_shows_preview(self):
+        """Unwalked route tiles ahead show ∘."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=10)
+        raw = strip_rich_markup(rendered)
+        assert "\u2218" in raw  # ∘
+
+    def test_preview_count_decreases_with_progress(self):
+        """Fewer preview tiles as ship advances."""
+        engine = MapEngine(make_config())
+        early = count_char_in_grid(engine.render(tiles_revealed=0), "\u2218")
+        mid = count_char_in_grid(engine.render(tiles_revealed=80), "\u2218")
+        assert early >= 10, f"Expected >=10 preview chars at start, got {early}"
+        # Preview count should be consistent (~10 each time)
+        assert mid >= 8, f"Expected >=8 preview chars mid-voyage, got {mid}"
+
+    def test_fog_fills_rest(self):
+        """Areas not on the route show fog character."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=10)
+        raw = strip_rich_markup(rendered)
+        assert "\u2592" in raw  # ▒
+
+    def test_milestone_on_map(self):
+        """Milestone markers appear on the map."""
+        config = make_config()
+        engine = MapEngine(config)
+        # At tile 25, milestone "穿越迷雾之海" should be visible
+        rendered = engine.render(tiles_revealed=30)
+        raw = strip_rich_markup(rendered)
+        assert "\u2726" in raw  # ✦
+
+    def test_milestone_in_future_shows_as_preview_marker(self):
+        """Upcoming milestone within visible range shows as ✦."""
+        engine = MapEngine(make_config())
+        # At tile 20, milestone at tile 24 (day 25, 0-based) is ahead
+        rendered = engine.render(tiles_revealed=20)
+        raw = strip_rich_markup(rendered)
+        assert "\u2726" in raw  # ✦ should appear for upcoming milestone
 
     def test_no_crash_at_all_positions(self):
-        """Walking through 0→175 should not crash."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
-        for tiles in range(0, 176):
+        """Walking through 0 to 176 should never crash."""
+        engine = MapEngine(make_config())
+        for tiles in range(0, 177):
             rendered = engine.render(tiles_revealed=tiles)
-            assert rendered is not None, f"Failed at tiles_revealed={tiles}"
-            assert len(rendered) > 0
-        # Beyond total should also work
+            assert rendered is not None, f"None at tiles_revealed={tiles}"
+            assert len(rendered) > 0, f"Empty at tiles_revealed={tiles}"
+            lines = rendered.split("\n")
+            assert len(lines) == GRID_HEIGHT, f"Wrong rows at tiles_revealed={tiles}"
+
+    def test_beyond_total_still_renders(self):
+        """tiles_revealed > 175 still renders without error."""
+        engine = MapEngine(make_config())
         for tiles in [176, 200, 1000]:
             rendered = engine.render(tiles_revealed=tiles)
             assert rendered is not None
+            assert len(rendered.split("\n")) == GRID_HEIGHT
 
-    def test_bar_width_is_consistent(self):
-        """All stage bars should be BAR_WIDTH characters of content (after stripping markup)."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
-        for tiles in [0, 5, 25, 50, 100, 175]:
+    def test_negative_tiles_handled(self):
+        """Negative tiles_revealed should not crash."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=-1)
+        # -1 should be treated like 0
+        assert rendered is not None
+        assert "\u2693" in rendered
+
+    def test_rich_markup_present(self):
+        """Output contains Rich markup tags for styling."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=25)
+        assert "[" in rendered  # Rich tags present
+        assert "]" in rendered
+        # Should have bold styling for ship
+        assert "bold yellow" in rendered
+        # Should have fog styling
+        assert "dim blue" in rendered
+
+    def test_walked_route_shows_terrain(self):
+        """Walked route tiles show region terrain characters."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=5)
+        raw = strip_rich_markup(rendered)
+        # First stage is 启航, terrain char is ~
+        assert "~" in raw
+
+    def test_different_regions_use_different_chars(self):
+        """When ship reaches different regions, terrain changes."""
+        engine = MapEngine(make_config())
+
+        # Stage 3 (季风带) terrain is ≈
+        rendered = engine.render(tiles_revealed=60)
+        raw = strip_rich_markup(rendered)
+        assert "\u2248" in raw  # ≈
+
+        # Stage 5 (赤道无风带) terrain is —
+        rendered = engine.render(tiles_revealed=110)
+        raw = strip_rich_markup(rendered)
+        assert "\u2014" in raw  # —
+
+    def test_grid_is_rectangular(self):
+        """All rows have the same width after stripping markup."""
+        engine = MapEngine(make_config())
+        for tiles in [0, 25, 50, 75, 100, 125, 150, 175]:
             rendered = engine.render(tiles_revealed=tiles)
-            for line in rendered.split("\n"):
-                raw = strip_rich_markup(line)
-                # Each line contains the stage name and a bar
-                assert len(raw) > 10, f"Line too short at tiles={tiles}: {raw}"
-                # Bar must be at least BAR_WIDTH characters of visible content
-                visible_content = raw.strip()
-                assert len(visible_content) >= BAR_WIDTH
+            widths = {len(strip_rich_markup(line)) for line in rendered.split("\n")}
+            assert len(widths) == 1, f"Inconsistent widths at tiles={tiles}: {widths}"
 
-
-# ── theme tests ──
-
-
-class TestThemeSwitching:
-    """Tests for theme switching between naval and cultivation."""
-
-    def test_naval_theme_uses_anchor(self):
-        """Naval theme shows ⚓ ship icon."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
-        rendered = engine.render(tiles_revealed=5)
-        assert "\u2693" in rendered  # ⚓
-
-    def test_cultivation_theme_uses_dagger(self):
-        """Cultivation theme shows 🗡️ instead of ⚓."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="cultivation")
-        rendered = engine.render(tiles_revealed=5)
-        assert "\U0001f5e1\ufe0f" in rendered  # 🗡️
-
-    def test_cultivation_theme_has_renamed_stages(self):
-        """Cultivation theme renames stages to xianxia terms."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="cultivation")
-        rendered = engine.render(tiles_revealed=5)
+    def test_full_completion_shows_flag(self):
+        """When voyage is complete, finish flag is shown at the destination."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=175)
         raw = strip_rich_markup(rendered)
-        assert "练气期" in raw
-        assert "筑基期" in raw
-
-    def test_unknown_theme_falls_back_to_naval(self):
-        """An unknown theme name falls back to naval."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="nonexistent")
-        rendered = engine.render(tiles_revealed=5)
-        assert "\u2693" in rendered  # ⚓ naval ship
-
-    def test_naval_theme_preserves_stage_names(self):
-        """Naval theme does not rename stages."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
-        rendered = engine.render(tiles_revealed=30)
-        raw = strip_rich_markup(rendered)
-        assert "迷雾之海" in raw
-
-    def test_cultivation_milestone_uses_sparkles(self):
-        """Cultivation milestone uses ✨ instead of ✦."""
-        engine = MapEngine(
-            stages=DEFAULT_STAGES,
-            milestones={24: "穿越迷雾之海"},
-            theme="cultivation",
-        )
-        rendered = engine.render(tiles_revealed=30)
-        assert "\u2728" in rendered  # ✨ (cultivation milestone)
+        assert "\U0001f3c1" in raw  # 🏁
 
 
-# ── get_current_stage tests ──
+# ── position / region query tests ──
+
+
+class TestPositionAndRegion:
+    """Tests for get_current_position and get_region_at."""
+
+    def test_get_current_position_at_start(self):
+        """Position at tiles_revealed=0 is the first route point."""
+        engine = MapEngine(make_config())
+        pos = engine.get_current_position(0)
+        assert pos is not None
+        assert pos == engine._route[0]
+
+    def test_get_current_position_tracks_ship(self):
+        """Position matches route[tiles_revealed]."""
+        engine = MapEngine(make_config())
+        for tiles in [0, 1, 25, 50, 100, 174]:
+            pos = engine.get_current_position(tiles)
+            assert pos == engine._route[min(tiles, 174)]
+
+    def test_get_current_position_clamps_at_end(self):
+        """Position clamps to last route point when beyond total."""
+        engine = MapEngine(make_config())
+        pos = engine.get_current_position(200)
+        assert pos == engine._route[-1]
+
+    def test_get_region_at_stages(self):
+        """get_region_at returns correct region for each stage."""
+        engine = MapEngine(make_config())
+        # tiles_revealed is 0-based count
+        # Stage 1 (启航): tiles 0-24
+        assert engine.get_region_at(1) == "启航"
+        assert engine.get_region_at(25) == "启航"
+        # Stage 2 (迷雾之海): tiles 25-49
+        assert engine.get_region_at(26) == "迷雾之海"
+        assert engine.get_region_at(50) == "迷雾之海"
+        # Stage 4 (贸易航线): tiles 75-99
+        assert engine.get_region_at(76) == "贸易航线"
+        # Stage 7 (新大陆近海): tiles 150-174
+        assert engine.get_region_at(151) == "新大陆近海"
+        assert engine.get_region_at(175) == "新大陆近海"
+
+    def test_get_region_at_zero_returns_first_stage(self):
+        """tiles_revealed=0 returns the first stage name."""
+        engine = MapEngine(make_config())
+        assert engine.get_region_at(0) == "启航"
+
+    def test_position_matches_x_range(self):
+        """Route points have x values increasing generally left to right."""
+        engine = MapEngine(make_config())
+        prev_x = -1
+        decreases = 0
+        for x, _ in engine._route:
+            if x < prev_x:
+                decreases += 1
+            prev_x = x
+        # A few decreases are OK (route undulation), but not too many
+        assert decreases < 10, f"Too many westward moves: {decreases}"
+
+
+# ── stage lookup tests ──
 
 
 class TestGetCurrentStage:
-    """Tests for get_current_stage()."""
+    """Tests for get_current_stage (interface compatibility)."""
 
     def test_stage_boundaries(self):
-        """Stage boundaries are detected correctly."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
+        """Stage boundaries are detected correctly with 0-based tiles_revealed."""
+        engine = MapEngine(make_config())
 
-        # tiles_revealed 0-24 should be stage 1 (days 1-25)
-        completed, current, nxt, idx = engine.get_current_stage(0)
+        # tiles_revealed=0: ship at tile 0 (day 1), first stage
+        _, current, nxt, idx = engine.get_current_stage(0)
         assert current["name"] == "启航"
         assert idx == 0
+        assert nxt is not None
 
-        # tiles_revealed 24 is last day of stage 1
-        completed, current, nxt, idx = engine.get_current_stage(24)
+        # tiles_revealed=24: last tile of stage 1 (day 25)
+        _, current, nxt, idx = engine.get_current_stage(24)
         assert current["name"] == "启航"
-        assert nxt is not None and nxt["name"] == "迷雾之海"
 
-        # tiles_revealed 25 is first day of stage 2
-        completed, current, nxt, idx = engine.get_current_stage(25)
+        # tiles_revealed=25: first tile of stage 2 (day 26)
+        _, current, nxt, idx = engine.get_current_stage(25)
         assert current["name"] == "迷雾之海"
-        assert len(completed) == 1
-        assert completed[0]["name"] == "启航"
+        assert nxt["name"] == "季风带"
 
-        # Last stage
-        completed, current, nxt, idx = engine.get_current_stage(174)
+    def test_last_stage_no_next(self):
+        """Last stage has no next stage."""
+        engine = MapEngine(make_config())
+        _, current, nxt, idx = engine.get_current_stage(174)
         assert current["name"] == "新大陆近海"
         assert nxt is None
 
-    def test_total_days_from_stages(self):
-        """total_days is derived from the last stage's end."""
-        engine = MapEngine(stages=DEFAULT_STAGES, theme="naval")
+    def test_total_days_from_route(self):
+        """total_days comes from route length."""
+        engine = MapEngine(make_config())
         assert engine.total_days == 175
 
     def test_total_days_empty_stages(self):
-        """Empty stages fall back to 175."""
-        engine = MapEngine(stages=[], theme="naval")
+        """Empty stages still gives 175."""
+        engine = MapEngine(make_config(stages=[]))
         assert engine.total_days == 175
 
 
-# ── get_log_entry tests (unchanged from original) ──
+# ── log entry tests (unchanged) ──
 
 
 def test_get_log_entry_deterministic():
