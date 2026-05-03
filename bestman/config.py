@@ -1,7 +1,9 @@
 """bestman configuration management."""
+import os
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 
 BESTMAN_HOME = Path.home() / ".bestman"
 
@@ -33,6 +35,22 @@ DEFAULT_CONFIG = {
         "name": "水手",
     },
 }
+
+
+def load_env():
+    """从 ~/.bestman/.env 加载环境变量。
+
+    仿 hermes 的 load_hermes_dotenv() 模式。
+    用户 .env 优先于项目 .env。
+    """
+    user_env = BESTMAN_HOME / ".env"
+    project_env = Path(__file__).parent.parent / ".env"
+
+    # 用户 .env 优先
+    if user_env.exists():
+        load_dotenv(dotenv_path=user_env, override=True)
+    if project_env.exists():
+        load_dotenv(dotenv_path=project_env, override=not user_env.exists())
 
 
 def _deep_merge(base, override):

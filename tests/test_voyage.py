@@ -13,12 +13,16 @@ from bestman.voyage import Voyage
 
 @pytest.fixture
 def mock_deps():
-    """Mock state、config、map engine 和日志模板。"""
+    """Mock state、config、map engine、LLM 和日志模板。"""
     with (
         patch("bestman.voyage.load_config") as mock_load_config,
+        patch("bestman.voyage.load_env") as mock_load_env,
         patch("bestman.voyage.BestmanState") as mock_state_cls,
         patch("bestman.voyage.MapEngine") as mock_map_cls,
+        patch("bestman.voyage.LLMClient") as mock_llm_cls,
         patch("bestman.voyage.get_log_entry") as mock_get_log,
+        patch("bestman.voyage.generate_voyage_log") as mock_gen_log,
+        patch("bestman.voyage.chat_with_coach") as mock_coach,
     ):
         # 配置 mock
         mock_config = {
@@ -37,6 +41,11 @@ def mock_deps():
         }
         mock_load_config.return_value = mock_config
 
+        # LLM mock
+        mock_llm = MagicMock()
+        mock_llm.available = False
+        mock_llm_cls.return_value = mock_llm
+
         # State mock
         mock_state = MagicMock()
         mock_state.get_tiles_revealed.return_value = 0
@@ -53,12 +62,23 @@ def mock_deps():
         # 日志模板 mock
         mock_get_log.return_value = "今天的航海日志测试文本。"
 
+        # LLM 日志生成默认返回 None（fallback）
+        mock_gen_log.return_value = None
+
+        # 教练对话默认返回
+        mock_coach.return_value = None
+
         yield {
             "config": mock_config,
             "state": mock_state,
             "map": mock_map,
+            "llm": mock_llm,
             "get_log": mock_get_log,
+            "gen_log": mock_gen_log,
+            "coach": mock_coach,
             "load_config": mock_load_config,
+            "load_env": mock_load_env,
+            "llm_cls": mock_llm_cls,
         }
 
 
@@ -199,6 +219,107 @@ class TestGetLogs:
         voyage = Voyage()
         voyage.get_logs()
         mock_deps["state"].get_logs.assert_called_once_with(10)
+
+
+class TestCompleteWithLLM:
+    """LLM 日志生成测试。"""
+
+    def test_complete_uses_llm_when_available(self, mock_deps):
+        """LLM 可用时使用 LLM 生成日志。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.return_value = 1
+        mock_deps["gen_log"].return_value = "LLM 生成的航海日志。"
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["success"] is True
+        assert result["llm_used"] is True
+        assert result["log_entry"] == "LLM 生成的航海日志。"
+        # 不应调用模板 fallback
+        mock_deps["get_log"].assert_not_called()
+
+    def test_complete_falls_back_to_template(self, mock_deps):
+        """LLM 不可用时退回模板日志。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.return_value = 1
+        mock_deps["gen_log"].return_value = None  # LLM 不可用
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["success"] is True
+        assert result["llm_used"] is False
+        assert result["log_entry"] == "今天的航海日志测试文本。"
+        # 应调用模板 fallback
+        mock_deps["get_log"].assert_called_once()
+
+    def test_complete_duplicate_returns_llm_used_false(self, mock_deps):
+        """重复打卡时 llm_used 为 False。"""
+        mock_deps["state"].today_recorded.return_value = True
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["success"] is False
+        assert result["llm_used"] is False
+
+
+class TestTalk:
+    """talk() 方法测试。"""
+
+    def test_talk_success(self, mock_deps):
+        """成功与导航员对话。"""
+        mock_deps["llm"].available = True
+        mock_deps["coach"].return_value = "风浪有点大，但船很稳。今天可以减量。"
+
+        voyage = Voyage()
+        result = voyage.talk("今天好累")
+
+        assert result["success"] is True
+        assert result["response"] == "风浪有点大，但船很稳。今天可以减量。"
+        assert result["error"] is None
+        mock_deps["coach"].assert_called_once()
+
+    def test_talk_llm_not_available(self, mock_deps):
+        """LLM 未配置时返回友好提示。"""
+        mock_deps["llm"].available = False
+
+        voyage = Voyage()
+        result = voyage.talk("今天好累")
+
+        assert result["success"] is False
+        assert "LLM 未配置" in result["error"]
+        assert "导航员正在休息" in result["response"]
+
+    def test_talk_llm_error(self, mock_deps):
+        """LLM 请求失败时返回错误。"""
+        mock_deps["llm"].available = True
+        mock_deps["coach"].return_value = None  # 返回 None 表示失败
+
+        voyage = Voyage()
+        result = voyage.talk("今天好累")
+
+        assert result["success"] is False
+        assert "LLM 请求失败" in result["error"]
+
+    def test_talk_passes_context_to_coach(self, mock_deps):
+        """验证传递航行上下文给教练。"""
+        mock_deps["llm"].available = True
+        mock_deps["state"].get_tiles_revealed.return_value = 4
+        mock_deps["state"].get_completed_days.return_value = 4
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["coach"].return_value = "继续前进。"
+
+        voyage = Voyage()
+        result = voyage.talk("今天做什么？")
+
+        assert result["success"] is True
+        call_args = mock_deps["coach"].call_args
+        context = call_args[0][2]  # 第三个参数是 context
+        assert context["current_day"] == 5  # tiles_revealed(4) + 1
+        assert context["today_done"] is False
+        assert "死虫式" in context["today_task"]
 
 
 class TestIsInitialized:
