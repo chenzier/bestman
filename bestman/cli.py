@@ -1,14 +1,17 @@
 """bestman CLI — Click 命令行入口。
 
 命令：
-- bestman init     初始化航行
-- bestman          仪表盘（默认）
-- bestman done     完成今日任务
-- bestman skip     使用跳过令牌
-- bestman map      查看航行地图概览
-- bestman log      查看航海日志
-- bestman talk     与 AI 导航员对话
-- bestman reset    重置所有数据
+- bestman init         初始化航行
+- bestman              仪表盘（默认）
+- bestman done         完成今日任务
+- bestman skip         使用跳过令牌
+- bestman map          查看航行地图概览
+- bestman log          查看航海日志
+- bestman talk         与 AI 导航员对话
+- bestman reset        重置所有数据
+- bestman plan create  交互式创建健身计划
+- bestman plan show    查看当前计划
+- bestman plan edit     编辑计划文件
 """
 
 import random
@@ -24,7 +27,7 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.text import Text
 
-from bestman.config import BESTMAN_HOME, ensure_home, load_config, save_config
+from bestman.config import BESTMAN_HOME, ensure_home, load_config, save_config, load_plan, save_plan
 from bestman.voyage import Voyage
 
 console = Console()
@@ -482,6 +485,257 @@ def config_dice_mode(mode):
         current = cfg.get("dice", {}).get("mode", "deterministic")
         mode_names = {"deterministic": "确定性", "interactive": "互动"}
         console.print(f"当前骰子模式：[bold cyan]{mode_names.get(current, current)}[/bold cyan]（{current}）")
+
+
+@main.group()
+def plan():
+    """管理健身计划。
+
+    \b
+    示例：
+        bestman plan create     # 交互式创建新计划
+        bestman plan show       # 查看当前计划
+        bestman plan edit        # 用编辑器修改计划
+    """
+    _require_init()
+
+
+@plan.command("create")
+def plan_create():
+    """交互式制定健身计划。
+
+    回答几个问题，导航员（LLM）会为你生成分阶段计划，
+    并保存到 ~/.bestman/plan.yaml。
+    """
+    _require_init()
+
+    console.print()
+    console.print(Rule("[bold cyan]制定健身计划[/bold cyan]"))
+    console.print()
+
+    # 已在 bestman init 时检查，但 create_plan 需要 LLM
+    voyage = Voyage()
+    if not voyage.llm.available:
+        console.print("[red]LLM 未配置[/red]")
+        console.print(
+            "[dim]请在 [bold]~/.bestman/.env[/bold] 中设置 OPENAI_API_KEY[/dim]"
+        )
+        return
+
+    # 检查已有计划
+    existing = load_plan()
+    if existing:
+        console.print(f"[yellow]已存在计划：{existing.get('name', '未知')}[/yellow]")
+        console.print()
+
+    # 交互式问答
+    answers = {}
+
+    console.print("你的目标是什么？")
+    goal_choices = {
+        "1": ("weight_loss", "减肥"),
+        "2": ("muscle_gain", "增肌"),
+        "3": ("habit", "养成运动习惯"),
+        "4": ("custom", "自定义"),
+    }
+    for key, (_, label) in goal_choices.items():
+        console.print(f"  [bold][{key}][/bold] {label}")
+    goal_choice = click.prompt(">", type=click.Choice(["1", "2", "3", "4"]), default="1")
+    answers["goal_type"] = goal_choices[goal_choice][0]
+
+    if answers["goal_type"] == "custom":
+        custom_goal = click.prompt("描述你的目标", default="")
+        answers["custom_goal"] = custom_goal
+
+    console.print()
+
+    # 体重（可选）
+    weight_input = click.prompt("当前体重？（kg，回车跳过）", default="", show_default=False)
+    answers["start_weight_kg"] = float(weight_input) if weight_input.strip() else None
+    if answers["start_weight_kg"] is not None:
+        target_input = click.prompt("目标体重？（kg，回车跳过）", default="", show_default=False)
+        answers["target_weight_kg"] = float(target_input) if target_input.strip() else None
+    else:
+        answers["target_weight_kg"] = None
+
+    console.print()
+
+    # 计划周期
+    answers["total_days"] = click.prompt("计划周期？（天）", type=int, default=120)
+    console.print()
+
+    console.print("你现在的运动基础？")
+    fitness_choices = {
+        "1": ("beginner", "几乎不运动"),
+        "2": ("occasional", "偶尔运动（每周 1-2 次）"),
+        "3": ("intermediate", "有一定基础"),
+    }
+    for key, (_, label) in fitness_choices.items():
+        console.print(f"  [bold][{key}][/bold] {label}")
+    fitness_choice = click.prompt(">", type=click.Choice(["1", "2", "3"]), default="1")
+    answers["fitness_level"] = fitness_choices[fitness_choice][0]
+
+    console.print()
+
+    console.print("运动偏好？")
+    pref_choices = {
+        "1": ("bodyweight", "居家自重（深蹲、静蹲、平板支撑）"),
+        "2": ("outdoor", "户外（跑步、爬楼梯）"),
+        "3": ("mixed", "混合"),
+    }
+    for key, (_, label) in pref_choices.items():
+        console.print(f"  [bold][{key}][/bold] {label}")
+    pref_choice = click.prompt(">", type=click.Choice(["1", "2", "3"]), default="1")
+    answers["preference"] = pref_choices[pref_choice][0]
+
+    console.print()
+    console.print("[dim]导航员正在为你制定计划...[/dim]")
+    console.print()
+
+    with console.status("[cyan]导航员正在思考...[/cyan]"):
+        result = voyage.create_plan(answers)
+
+    if not result["success"]:
+        console.print(f"[red]{result['error']}[/red]")
+        return
+
+    plan = result["plan"]
+
+    # 展示结果
+    console.print(f"[bold green]✓ 计划已生成：{plan['name']} · {plan['total_days']} 天[/bold green]")
+    if answers.get("start_weight_kg") and answers.get("target_weight_kg"):
+        console.print(
+            f"  {answers['start_weight_kg']}kg → {answers['target_weight_kg']}kg"
+        )
+
+    console.print()
+    console.print("[bold]阶段预览：[/bold]")
+    for stage in plan.get("stages", []):
+        start, end = stage["days"]
+        console.print(f"  [cyan]{stage['name']:　<8s}[/cyan] 第 {start:>3d}-{end:<3d}天 ·  {stage['daily_task']}")
+
+    if plan.get("milestones"):
+        milestone_count = len(plan["milestones"])
+        console.print()
+        console.print(f"[dim]里程碑：每 {plan['total_days'] // milestone_count} 天一个，共 {milestone_count} 个[/dim]")
+
+    console.print()
+    save_it = click.confirm(
+        f"保存到 ~/.bestman/plan.yaml 并替换当前计划？",
+        default=True,
+    )
+    if save_it:
+        save_plan(plan)
+        console.print("[green]✓ 计划已保存[/green]")
+    else:
+        console.print("[dim]已取消保存。[/dim]")
+
+    console.print()
+
+
+@plan.command("show")
+def plan_show():
+    """查看当前健身计划。"""
+    _require_init()
+
+    plan = load_plan()
+    if plan is None:
+        console.print()
+        console.print("[dim]尚未制定计划。[/dim]")
+        console.print("[dim]运行 [bold green]bestman plan create[/bold green] 来制定你的健身计划。[/dim]")
+        console.print()
+        return
+
+    console.print()
+    console.print(Rule(f"[bold cyan]{plan.get('name', '健身计划')}[/bold cyan]"))
+    console.print()
+
+    # 概览
+    goal_type_labels = {
+        "weight_loss": "减肥",
+        "muscle_gain": "增肌",
+        "habit": "养成运动习惯",
+        "custom": "自定义",
+    }
+    goal_type = goal_type_labels.get(plan.get("goal_type", ""), plan.get("goal_type", ""))
+
+    console.print(f"目标：[cyan]{goal_type}[/cyan]")
+    console.print(f"周期：[cyan]{plan.get('start_date', '?')}[/cyan] → [cyan]{plan.get('target_date', '?')}[/cyan]（{plan.get('total_days', '?')} 天）")
+
+    profile = plan.get("profile", {})
+    if profile:
+        weight_info = ""
+        if profile.get("start_weight_kg") and profile.get("target_weight_kg"):
+            weight_info = f" · {profile['start_weight_kg']}kg → {profile['target_weight_kg']}kg"
+        elif profile.get("start_weight_kg"):
+            weight_info = f" · {profile['start_weight_kg']}kg"
+        console.print(f"身体数据：{profile.get('height_cm', '?')}cm{weight_info}")
+
+        fitness_labels = {"beginner": "几乎不运动", "occasional": "偶尔运动", "intermediate": "有一定基础"}
+        pref_labels = {"bodyweight": "居家自重", "outdoor": "户外", "mixed": "混合"}
+        console.print(
+            f"基础：[cyan]{fitness_labels.get(profile.get('fitness_level', ''), profile.get('fitness_level', ''))}[/cyan]"
+            f" · 偏好：[cyan]{pref_labels.get(profile.get('preference', ''), profile.get('preference', ''))}[/cyan]"
+        )
+
+    console.print()
+
+    # 阶段表格
+    console.print("[bold]阶段安排：[/bold]")
+    for stage in plan.get("stages", []):
+        start, end = stage["days"]
+        console.print(f"  [cyan]{stage['name']:　<8s}[/cyan] 第 {start:>3d}-{end:<3d}天 ·  {stage['daily_task']}")
+
+    # 里程碑
+    milestones = plan.get("milestones", {})
+    if milestones:
+        console.print()
+        console.print("[bold]里程碑：[/bold]")
+        for day, name in sorted(milestones.items(), key=lambda x: int(x[0])):
+            console.print(f"  DAY {day:>3d} · [dim]{name}[/dim]")
+
+    console.print()
+
+
+@plan.command("edit")
+def plan_edit():
+    """用默认编辑器编辑计划文件。
+
+    打开 $EDITOR（默认 vim/vi）编辑 ~/.bestman/plan.yaml。
+    """
+    _require_init()
+
+    import os
+
+    plan_path_str = str(BESTMAN_HOME / "plan.yaml")
+
+    # 确保 plan.yaml 存在
+    if not (BESTMAN_HOME / "plan.yaml").exists():
+        console.print("[dim]尚未制定计划，正在创建空模板...[/dim]")
+        save_plan({
+            "name": "新计划",
+            "goal_type": "weight_loss",
+            "start_date": "",
+            "target_date": "",
+            "total_days": 120,
+            "profile": {
+                "height_cm": None,
+                "start_weight_kg": None,
+                "target_weight_kg": None,
+                "fitness_level": "beginner",
+                "preference": "bodyweight",
+            },
+            "stages": [],
+            "milestones": {},
+        })
+
+    editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "vim"))
+    console.print(f"[dim]正在用 {editor} 打开计划文件...[/dim]")
+    import subprocess
+    subprocess.call([editor, plan_path_str])
+    console.print()
+    console.print("[green]✓ 计划文件已保存。运行 [bold]bestman plan show[/bold] 查看。[/green]")
+    console.print()
 
 
 @main.command()
