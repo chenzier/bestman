@@ -13,6 +13,8 @@ class BestmanState:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self._init_tables()
 
+    SCHEMA_VERSION = 2
+
     def _init_tables(self):
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS days (
@@ -29,10 +31,21 @@ class BestmanState:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date TEXT NOT NULL,
                 text TEXT NOT NULL DEFAULT '',
+                event_type TEXT NOT NULL DEFAULT 'narrative',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self):
+        """Run schema migrations for existing databases."""
+        cursor = self.conn.execute("PRAGMA table_info(voyage_logs)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "event_type" not in columns:
+            self.conn.execute(
+                "ALTER TABLE voyage_logs ADD COLUMN event_type TEXT NOT NULL DEFAULT 'narrative'"
+            )
 
     def record_day(self, day, completed=1, extra=0, task_done=""):
         self.conn.execute(
@@ -61,10 +74,10 @@ class BestmanState:
         )
         return cursor.fetchone()[0]
 
-    def save_log(self, day, text):
+    def save_log(self, day, text, event_type="narrative"):
         self.conn.execute(
-            "INSERT INTO voyage_logs (date, text) VALUES (?, ?)",
-            (day, text),
+            "INSERT INTO voyage_logs (date, text, event_type) VALUES (?, ?, ?)",
+            (day, text, event_type),
         )
         self.conn.commit()
 

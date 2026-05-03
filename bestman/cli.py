@@ -156,6 +156,18 @@ def done():
         )
         console.print()
 
+    # 事件
+    if result.get("event"):
+        evt = result["event"]
+        console.print()
+        if evt["type"] == "bonus_tile":
+            console.print(f"[bold yellow]🎉 {evt['message']}[/]")
+        elif evt["type"] == "encouragement":
+            console.print(f"[cyan]✨ {evt['message']}[/]")
+        elif evt["type"] == "challenge":
+            console.print(f"[yellow]💪 {evt['message']}[/]")
+        console.print()
+
     # 地图更新
     console.print("[dim]地图更新：[/dim]")
     console.print(voyage.render_map())

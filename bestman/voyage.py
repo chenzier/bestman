@@ -11,6 +11,7 @@ from datetime import date
 from bestman.config import BESTMAN_HOME, load_config, get_current_stage
 from bestman.state import BestmanState
 from bestman.map_engine import MapEngine, get_log_entry
+from bestman.events import EventEngine
 
 
 class Voyage:
@@ -29,6 +30,7 @@ class Voyage:
             total_days=self.config["voyage"]["total_days"],
             milestones={k - 1: v for k, v in raw_milestones.items()},
         )
+        self.event_engine = EventEngine(self.config)
 
     def get_status(self) -> dict:
         """获取当前航行状态。
@@ -91,6 +93,7 @@ class Voyage:
                 "tiles_revealed": int,
                 "log_entry": str | None,   # 航海日志文本
                 "milestone": str | None,   # 里程碑名称（如果触发）
+                "event": dict | None,      # 触发的事件（如果触发）
                 "error": str | None,       # 错误信息（如果失败）
             }
         """
@@ -105,6 +108,7 @@ class Voyage:
                 "tiles_revealed": self.state.get_tiles_revealed(),
                 "log_entry": None,
                 "milestone": None,
+                "event": None,
                 "error": "今日已经打卡",
             }
 
@@ -125,12 +129,21 @@ class Voyage:
         if current_day in milestones:
             milestone = milestones[current_day]
 
+        # 检查随机事件
+        event = self.event_engine.check(current_day)
+        if event:
+            if event["type"] == "bonus_tile":
+                self.state.record_day(date_str + "_bonus", completed=0, extra=1)
+                tiles_revealed += 1
+            self.state.save_log(date_str, event["message"], event_type="event")
+
         return {
             "success": True,
             "message": f"完成！推进了 1 格",
             "tiles_revealed": tiles_revealed,
             "log_entry": log_entry,
             "milestone": milestone,
+            "event": event,
             "error": None,
         }
 

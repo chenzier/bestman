@@ -18,6 +18,7 @@ def mock_deps():
         patch("bestman.voyage.load_config") as mock_load_config,
         patch("bestman.voyage.BestmanState") as mock_state_cls,
         patch("bestman.voyage.MapEngine") as mock_map_cls,
+        patch("bestman.voyage.EventEngine") as mock_event_cls,
         patch("bestman.voyage.get_log_entry") as mock_get_log,
     ):
         # 配置 mock
@@ -50,6 +51,11 @@ def mock_deps():
         mock_map.render.return_value = "MOCK_MAP_HERE"
         mock_map_cls.return_value = mock_map
 
+        # Event engine mock
+        mock_event = MagicMock()
+        mock_event.check.return_value = None
+        mock_event_cls.return_value = mock_event
+
         # 日志模板 mock
         mock_get_log.return_value = "今天的航海日志测试文本。"
 
@@ -57,6 +63,7 @@ def mock_deps():
             "config": mock_config,
             "state": mock_state,
             "map": mock_map,
+            "event": mock_event,
             "get_log": mock_get_log,
             "load_config": mock_load_config,
         }
@@ -175,6 +182,84 @@ class TestComplete:
         today = date.today().isoformat()
         mock_deps["state"].today_recorded.assert_called_with(today)
         assert result["success"] is True
+
+    def test_complete_no_event(self, mock_deps):
+        """无事件触发时 result['event'] 为 None。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.return_value = 1
+        mock_deps["event"].check.return_value = None
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["event"] is None
+        mock_deps["event"].check.assert_called_once_with(1)
+
+    def test_complete_with_bonus_tile_event(self, mock_deps):
+        """bonus_tile 事件触发时额外推进 +1 格。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.return_value = 1
+        mock_event_data = {
+            "id": "tailwind",
+            "type": "bonus_tile",
+            "probability": 0.15,
+            "message": "顺风！",
+        }
+        mock_deps["event"].check.return_value = mock_event_data
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["event"] == mock_event_data
+        assert result["tiles_revealed"] == 2  # 1 + 1 bonus
+        mock_deps["state"].record_day.assert_any_call(
+            "2026-05-03_bonus", completed=0, extra=1
+        )
+        mock_deps["state"].save_log.assert_any_call(
+            "2026-05-03", "顺风！", event_type="event"
+        )
+
+    def test_complete_with_encouragement_event(self, mock_deps):
+        """encouragement 事件触发，不推进格数但写日志。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.return_value = 1
+        mock_event_data = {
+            "id": "dolphin_escort",
+            "type": "encouragement",
+            "probability": 0.10,
+            "message": "海豚伴游！",
+        }
+        mock_deps["event"].check.return_value = mock_event_data
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["event"] == mock_event_data
+        assert result["tiles_revealed"] == 1  # 没有额外推进
+        mock_deps["state"].save_log.assert_any_call(
+            "2026-05-03", "海豚伴游！", event_type="event"
+        )
+
+    def test_complete_with_challenge_event(self, mock_deps):
+        """challenge 事件触发，不推进格数但写日志。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.return_value = 1
+        mock_event_data = {
+            "id": "whale_challenge",
+            "type": "challenge",
+            "probability": 0.08,
+            "message": "鲸群挑战！",
+        }
+        mock_deps["event"].check.return_value = mock_event_data
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03")
+
+        assert result["event"] == mock_event_data
+        assert result["tiles_revealed"] == 1
+        mock_deps["state"].save_log.assert_any_call(
+            "2026-05-03", "鲸群挑战！", event_type="event"
+        )
 
 
 class TestGetLogs:
