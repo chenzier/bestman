@@ -21,7 +21,10 @@ def runner():
 @pytest.fixture
 def mock_voyage():
     """Mock Voyage 类。"""
-    with patch("bestman.cli.Voyage") as mock_cls:
+    with (
+        patch("bestman.cli.kitty_available", return_value=False),
+        patch("bestman.cli.Voyage") as mock_cls,
+    ):
         mock_inst = MagicMock()
         mock_cls.return_value = mock_inst
 
@@ -43,6 +46,15 @@ def mock_voyage():
         mock_inst.render_map.return_value = "MOCK_MAP_HERE"
         mock_inst.get_logs.return_value = []
         mock_inst.is_initialized.return_value = True
+
+        # Canvas / vessel support
+        mock_theme = MagicMock()
+        mock_theme.stage_display_name.return_value = "启航"
+        mock_theme.vessels = {}
+        mock_inst.theme = mock_theme
+        mock_inst.current_vessel = "schooner"
+        mock_inst.route = [(2, 10)]
+
         mock_inst.skip.return_value = {
             "success": True,
             "message": "已使用一枚跳过令牌。剩余令牌：0 枚",

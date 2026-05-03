@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from bestman.themes.base import Theme, TileSet
+from bestman.themes.base import Theme, TileSet, VesselDef
 
 
 @dataclass
@@ -25,6 +25,50 @@ class CultivationTileSet(TileSet):
     bar_fill_markup: str = "[cyan]\u2501[/]"
     bar_empty: str = "\u2592"             # ▒
     bar_empty_markup: str = "[dim]\u2592[/]"
+
+
+# ── 修仙主题载具像素画 ──────────────────────────────────────────
+
+_CULTIVATION_VESSELS = {
+    "sword": VesselDef(
+        name="飞剑", icon="🗡️",
+        pixels=[
+            '...CCC....',
+            '..CXCXC...',
+            '.CXCXCXC..',
+            'CXCXCXCXC.',
+            '.CXCXCXC..',
+            '..CXCXC...',
+            '...CCC....',
+        ],
+        palette={
+            'C': (26, 42, 64, 255),
+            'X': (80, 210, 255, 255),
+        },
+        theme="cultivation", price=0,
+    ),
+    "yinglong": VesselDef(
+        name="应龙", icon="🦅",
+        pixels=[
+            '..GGGGGS....',
+            '.GJJJJJSG...',
+            'GJIIIJJJSG..',
+            'JJZJZJZJJ..',
+            'JIIJIIJJJ...',
+            '.GGGGGGG...',
+            '...NN......',
+        ],
+        palette={
+            'G': (26, 90, 48, 255),
+            'J': (96, 176, 64, 255),
+            'I': (42, 42, 48, 255),
+            'Z': (255, 215, 0, 255),
+            'N': (13, 30, 50, 255),
+            'S': (255, 255, 240, 255),
+        },
+        theme="cultivation", price=800,
+    ),
+}
 
 
 @dataclass
@@ -50,3 +94,4 @@ class CultivationTheme(Theme):
     })
 
     narrative_prefix: str = "你是一位修仙者，正在修炼之路上前行。"
+    vessels: dict = field(default_factory=lambda: dict(_CULTIVATION_VESSELS))

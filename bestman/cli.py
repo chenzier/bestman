@@ -30,6 +30,7 @@ from rich.rule import Rule
 from rich.text import Text
 
 from bestman.config import BESTMAN_HOME, ensure_home, load_config, save_config, load_plan, save_plan
+from bestman.canvas_renderer import kitty_available, render_map as canvas_render_map, kitty_display as canvas_kitty_display
 from bestman.voyage import Voyage
 
 console = Console()
@@ -160,8 +161,26 @@ def _dashboard():
     console.print(Rule("[bold cyan]bestman — 航向新大陆[/bold cyan]"))
     console.print()
 
-    # 2D 世界地图
-    console.print(voyage.render_map())
+    # 地图：优先 Canvas，回退 Rich
+    if kitty_available():
+        try:
+            png = canvas_render_map(
+                route=voyage.route,
+                tiles_revealed=status["tiles_revealed"],
+                current_day=status["current_day"],
+                stage_name=voyage.theme.stage_display_name(status["stage"]["name"]),
+                remaining=status["remaining"],
+                total_days=status["total_days"],
+                vessel_name=voyage.current_vessel,
+                vessel_def=voyage.theme.vessels.get(voyage.current_vessel),
+                milestones_config=voyage.config.get("voyage", {}).get("milestones", {}),
+            )
+            canvas_kitty_display(png, cols=90, rows=24)
+        except Exception:
+            # Fallback to Rich if canvas rendering fails
+            console.print(voyage.render_map())
+    else:
+        console.print(voyage.render_map())
     console.print()
 
     # 状态行
@@ -1126,4 +1145,103 @@ def progress():
         else:
             console.print()
 
+    console.print()
+
+
+# ── vessel 载具管理 ──────────────────────────────────────────────
+
+@main.group()
+def vessel():
+    """载具管理。
+
+    查看和切换当前主题下的可用载具。
+    不同载具有不同的像素精灵外观，部分载具需要金币购买。
+
+    \b
+    示例：
+        bestman vessel list        # 列出可用载具
+        bestman vessel set dragon  # 切换到龙头战船
+    """
+    _require_init()
+
+
+@vessel.command("list")
+def vessel_list():
+    """列出当前主题下的所有载具。
+
+    显示载具名称、图标、价格和是否已拥有。
+    """
+    voyage = Voyage()
+    theme = voyage.theme
+    current_vessel = voyage.current_vessel
+    owned = set(voyage.config.get("profile", {}).get("vessel_owned", ["schooner"]))
+
+    console.print()
+    console.print(Rule(f"[bold cyan]{theme.name} 主题 · 载具[/bold cyan]"))
+    console.print()
+
+    if not theme.vessels:
+        console.print("[dim]当前主题没有可用载具。[/dim]")
+        console.print()
+        return
+
+    for vid, vdef in theme.vessels.items():
+        is_current = vid == current_vessel
+        is_owned = vid in owned
+        marker = "[bold yellow]●[/bold yellow]" if is_current else " "
+        icon = vdef.icon
+        name = vdef.name
+        if is_current:
+            status = "[bold green]（当前）[/bold green]"
+        elif not is_owned and vdef.price > 0:
+            status = f"[dim]（{vdef.price} 金币）[/dim]"
+        else:
+            status = "[dim]（已拥有）[/dim]"
+        console.print(f"  {marker} {icon}  [bold cyan]{name}[/bold cyan]  {status}")
+
+    current_def = theme.vessels.get(current_vessel)
+    current_name = current_def.name if current_def else "?"
+    current_icon = current_def.icon if current_def else "?"
+    console.print()
+    console.print(f"[dim]当前载具：[bold]{current_icon} {current_name}[/bold][/dim]")
+    console.print("[dim]切换载具：[bold green]bestman vessel set <名称>[/bold green][/dim]")
+    console.print()
+
+
+@vessel.command("set")
+@click.argument("name")
+def vessel_set(name):
+    """切换当前载具。
+
+    \b
+    示例：
+        bestman vessel set dragon   # 切换到龙头战船
+        bestman vessel set schooner # 切回初阶帆船
+    """
+    voyage = Voyage()
+    theme = voyage.theme
+
+    # 检查载具是否存在
+    if name not in theme.vessels:
+        available = ", ".join(theme.vessels.keys())
+        console.print(f"[red]未知载具：{name}[/red]")
+        console.print(f"[dim]可用载具：{available}[/dim]")
+        return
+
+    # 检查是否已拥有
+    owned = set(voyage.config.get("profile", {}).get("vessel_owned", ["schooner"]))
+    if name not in owned:
+        vdef = theme.vessels[name]
+        console.print(f"[yellow]你尚未拥有 {vdef.icon} {vdef.name}。[/yellow]")
+        console.print(f"[dim]需要 {vdef.price} 金币购买。[/dim]")
+        return
+
+    # 更新配置
+    cfg = load_config()
+    cfg.setdefault("profile", {})["vessel"] = name
+    save_config(cfg)
+
+    vdef = theme.vessels[name]
+    console.print(f"[green]✓ 载具已切换为 {vdef.icon} {vdef.name}[/green]")
+    console.print("[dim]运行 [bold green]bestman[/bold green] 查看仪表盘。[/dim]")
     console.print()

@@ -1,10 +1,38 @@
 """Theme system base classes.
 
 A Theme defines the visual vocabulary for the segmented map:
-characters, colours, stage names, and narrative tone.
+characters, colours, stage names, narrative tone, and vessel pixel art.
 """
 
 from dataclasses import dataclass, field
+
+
+@dataclass
+class VesselDef:
+    """A vessel (载具) definition with pixel art and metadata.
+
+    The pixel art is defined as a list of strings (one per row), where
+    each character maps to a colour in the palette dict.  Characters
+    not in the palette are treated as transparent.
+
+    Example::
+
+        VesselDef(
+            name="初阶帆船", icon="⛵",
+            pixels=['..BB..', '.BWWB.', '..BB..'],
+            palette={'B': (74,32,16,255), 'W': (255,255,240,255)},
+            price=0, theme="naval",
+        )
+    """
+
+    name: str
+    icon: str                       # emoji identifier
+    pixels: list[str]               # pixel art row strings ("BBWWBB" format)
+    palette: dict[str, tuple]       # char → (R, G, B, A)
+    theme: str = "naval"
+    price: int = 0
+    width: int = 12
+    height: int = 9
 
 
 @dataclass
@@ -61,6 +89,9 @@ class Theme:
 
     # Narrative prefix for LLM prompts (empty = no override)
     narrative_prefix: str = ""
+
+    # Vessel (载具) definitions keyed by vessel ID
+    vessels: dict = field(default_factory=dict)
 
     def stage_display_name(self, config_name: str) -> str:
         """Get themed display name for a stage, with fallback to config name."""

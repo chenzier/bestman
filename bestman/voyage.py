@@ -19,6 +19,7 @@ from bestman.state import BestmanState
 from bestman.map_engine import MapEngine, get_log_entry
 from bestman.events import EventEngine
 from bestman.llm import LLMClient, generate_voyage_log, chat_with_coach, generate_plan, review_summary, weigh_comment
+from bestman.themes import get_theme
 
 
 class Voyage:
@@ -41,6 +42,22 @@ class Voyage:
         self.state = BestmanState()
         self.map_engine = MapEngine(self.config)
         self.event_engine = EventEngine(self.config)
+
+    @property
+    def theme(self):
+        """Return the current Theme instance."""
+        theme_name = self.config.get("voyage", {}).get("theme", "naval")
+        return get_theme(theme_name)
+
+    @property
+    def current_vessel(self) -> str:
+        """Return the current vessel ID from config."""
+        return self.config.get("profile", {}).get("vessel", "schooner")
+
+    @property
+    def route(self) -> list:
+        """Return the voyage route coordinates (list of (x, y) tuples)."""
+        return self.map_engine._route
 
     def create_plan(self, answers: dict) -> dict:
         """创建分阶段健身计划。

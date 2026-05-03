@@ -157,6 +157,8 @@ DEFAULT_CONFIG = {
     ],
     "profile": {
         "name": "水手",
+        "vessel": "schooner",       # 当前载具 ID
+        "vessel_owned": ["schooner"],  # 已拥有的载具
     },
 }
 
