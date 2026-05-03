@@ -6,6 +6,7 @@ import yaml
 from dotenv import load_dotenv
 
 BESTMAN_HOME = Path.home() / ".bestman"
+PLAN_PATH = BESTMAN_HOME / "plan.yaml"
 
 DEFAULT_CONFIG = {
     "map": {
@@ -222,6 +223,28 @@ def get_dice_mode():
     """
     config = load_config()
     return config.get("dice", {}).get("mode", "deterministic")
+
+
+def load_plan():
+    """Load plan from ~/.bestman/plan.yaml.
+
+    Returns:
+        dict | None: Plan dict or None if plan.yaml doesn't exist.
+    """
+    if not PLAN_PATH.exists():
+        return None
+    plan = yaml.safe_load(PLAN_PATH.read_text())
+    return plan
+
+
+def save_plan(plan):
+    """Save plan dict to ~/.bestman/plan.yaml.
+
+    Args:
+        plan: Plan dict to write.
+    """
+    BESTMAN_HOME.mkdir(parents=True, exist_ok=True)
+    PLAN_PATH.write_text(yaml.dump(plan, allow_unicode=True, sort_keys=False))
 
 
 def get_current_stage(day, config):

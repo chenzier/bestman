@@ -85,6 +85,98 @@ def generate_voyage_log(client, stage_name, remaining, current_day, task_done):
     return client.chat(messages, temperature=0.9)
 
 
+PLAN_GENERATOR_SYSTEM_PROMPT = """你是一个健身计划制定专家。根据用户的目标、体重、基础、偏好，
+生成一个分阶段计划。每个阶段 15-25 天，共 4-6 个阶段。
+每日任务只包含自重动作，递进不要激进。
+返回严格 JSON（不要包含 markdown 代码块标记）：
+{
+  "name": "计划名称",
+  "goal_type": "weight_loss|muscle_gain|habit|custom",
+  "stages": [{"name": "阶段名", "days": [start, end], "daily_task": "动作描述"}],
+  "milestones": {"day_number": "里程碑名称"}
+}
+
+规则：
+- 每日任务只含自重动作，示例：死虫式、静蹲、深蹲、平板支撑、臀桥、鸟狗式
+- 阶段递进要温和，不要激进加量
+- 每个阶段 15-25 天
+- 总阶段数 4-6 个
+- 里程碑每 15-25 天一个，最后一个为"达成目标"
+- 计划名称简洁有激励性
+- 仅返回 JSON，不要额外解释"""
+
+
+def generate_plan(client, goal_type, profile):
+    """调用 LLM 生成分阶段健身计划。
+
+    Args:
+        client: LLMClient 实例
+        goal_type: 目标类型 (weight_loss, muscle_gain, habit, custom)
+        profile: dict 包含 {start_weight_kg, target_weight_kg, total_days,
+                fitness_level, preference, custom_goal}
+
+    Returns:
+        dict | None: 计划 dict（含 stages, milestones, name），LLM 不可用时返回 None
+    """
+    if not client.available:
+        return None
+
+    goal_labels = {
+        "weight_loss": "减肥",
+        "muscle_gain": "增肌",
+        "habit": "养成运动习惯",
+        "custom": profile.get("custom_goal", "自定义"),
+    }
+    fitness_labels = {
+        "beginner": "几乎不运动",
+        "occasional": "偶尔运动（每周 1-2 次）",
+        "intermediate": "有一定基础",
+    }
+    preference_labels = {
+        "bodyweight": "居家自重（深蹲、静蹲、平板支撑）",
+        "outdoor": "户外（跑步、爬楼梯）",
+        "mixed": "混合",
+    }
+
+    goal_text = goal_labels.get(goal_type, goal_type)
+    fitness_text = fitness_labels.get(profile.get("fitness_level", "beginner"), profile.get("fitness_level", ""))
+    pref_text = preference_labels.get(profile.get("preference", "bodyweight"), profile.get("preference", ""))
+
+    user_prompt = (
+        f"目标：{goal_text}。"
+        f"当前 {profile.get('start_weight_kg', '?')}kg，"
+        f"目标 {profile.get('target_weight_kg', '?')}kg。"
+        f"周期 {profile.get('total_days', 120)} 天。"
+        f"基础：{fitness_text}。"
+        f"偏好：{pref_text}。"
+    )
+
+    import json
+    response_text = client.chat(
+        [
+            {"role": "system", "content": PLAN_GENERATOR_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.7,
+        max_tokens=2000,
+    )
+
+    if response_text is None:
+        return None
+
+    try:
+        # Strip markdown code fences if present
+        cleaned = response_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+            if cleaned.endswith("```"):
+                cleaned = cleaned.rsplit("\n", 1)[0]
+        plan = json.loads(cleaned)
+        return plan
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
 def chat_with_coach(client, user_message, context):
     """与 AI 导航员对话。
 

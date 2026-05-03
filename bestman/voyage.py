@@ -12,11 +12,11 @@ import os
 import random
 from datetime import date
 
-from bestman.config import BESTMAN_HOME, load_config, get_current_stage, load_env
+from bestman.config import BESTMAN_HOME, load_config, get_current_stage, load_env, save_plan
 from bestman.state import BestmanState
 from bestman.map_engine import MapEngine, get_log_entry
 from bestman.events import EventEngine
-from bestman.llm import LLMClient, generate_voyage_log, chat_with_coach
+from bestman.llm import LLMClient, generate_voyage_log, chat_with_coach, generate_plan
 
 
 class Voyage:
@@ -39,6 +39,75 @@ class Voyage:
         self.state = BestmanState()
         self.map_engine = MapEngine(self.config)
         self.event_engine = EventEngine(self.config)
+
+    def create_plan(self, answers: dict) -> dict:
+        """创建分阶段健身计划。
+
+        调用 LLM 生成计划 stages 和 milestones，组合后写入 plan.yaml。
+
+        Args:
+            answers: dict with keys: goal_type, start_weight_kg, target_weight_kg,
+                    total_days, fitness_level, preference, custom_goal (optional)
+
+        Returns:
+            dict: {
+                "success": bool,
+                "plan": dict | None,     # 完整计划 dict
+                "error": str | None,
+            }
+        """
+        from datetime import date
+
+        goal_type = answers.get("goal_type", "weight_loss")
+        profile = {
+            "start_weight_kg": answers.get("start_weight_kg"),
+            "target_weight_kg": answers.get("target_weight_kg"),
+            "total_days": answers.get("total_days", 120),
+            "fitness_level": answers.get("fitness_level", "beginner"),
+            "preference": answers.get("preference", "bodyweight"),
+        }
+        if goal_type == "custom":
+            profile["custom_goal"] = answers.get("custom_goal", "")
+
+        llm_plan = generate_plan(self.llm, goal_type, profile)
+
+        if llm_plan is None:
+            return {
+                "success": False,
+                "plan": None,
+                "error": "LLM 不可用，无法生成计划。请检查 ~/.bestman/.env 中的 API 配置。",
+            }
+
+        # 构建完整 plan.yaml 结构
+        plan = {
+            "name": llm_plan.get("name", f"{answers.get('goal_type', 'custom')}计划"),
+            "goal_type": goal_type,
+            "start_date": date.today().isoformat(),
+            "target_date": llm_plan.get("target_date", ""),
+            "total_days": answers.get("total_days"),
+            "profile": {
+                "height_cm": answers.get("height_cm"),
+                "start_weight_kg": answers.get("start_weight_kg"),
+                "target_weight_kg": answers.get("target_weight_kg"),
+                "fitness_level": answers.get("fitness_level"),
+                "preference": answers.get("preference"),
+            },
+            "stages": llm_plan.get("stages", []),
+            "milestones": llm_plan.get("milestones", {}),
+        }
+
+        # 计算 target_date
+        if not plan["target_date"]:
+            from datetime import timedelta
+            target = date.today() + timedelta(days=answers.get("total_days", 120))
+            plan["target_date"] = target.isoformat()
+
+        save_plan(plan)
+        return {
+            "success": True,
+            "plan": plan,
+            "error": None,
+        }
 
     def get_status(self) -> dict:
         """获取当前航行状态。
