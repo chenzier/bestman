@@ -14,7 +14,7 @@ class BestmanState:
         self._init_tables()
         self._migrate()
 
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 5
 
     def _init_tables(self):
         self.conn.execute("""
@@ -84,6 +84,38 @@ class BestmanState:
                     coins INTEGER NOT NULL,
                     discovered_date TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+
+        # v0.5: add weights table
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='weights'"
+        )
+        if not cursor.fetchone():
+            self.conn.execute("""
+                CREATE TABLE weights (
+                    date TEXT PRIMARY KEY,
+                    weight_kg REAL NOT NULL,
+                    note TEXT DEFAULT '',
+                    created_at TEXT DEFAULT (datetime('now'))
+                )
+            """)
+
+        # v0.5: add plan_overrides table
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='plan_overrides'"
+        )
+        if not cursor.fetchone():
+            self.conn.execute("""
+                CREATE TABLE plan_overrides (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_date TEXT NOT NULL,
+                    expires_date TEXT,
+                    field TEXT NOT NULL,
+                    original_value TEXT NOT NULL,
+                    override_value TEXT NOT NULL,
+                    reason TEXT DEFAULT '',
+                    active INTEGER DEFAULT 1
                 )
             """)
 
@@ -213,6 +245,8 @@ class BestmanState:
         self.conn.execute("DELETE FROM voyage_logs")
         self.conn.execute("DELETE FROM skip_tokens")
         self.conn.execute("DELETE FROM treasures")
+        self.conn.execute("DELETE FROM weights")
+        self.conn.execute("DELETE FROM plan_overrides")
         self.conn.commit()
 
     def get_total_coins(self):
@@ -254,6 +288,156 @@ class BestmanState:
             {"name": row[0], "type": row[1], "coins": row[2], "discovered_date": row[3]}
             for row in cursor.fetchall()
         ]
+
+    def record_weight(self, date_str, weight_kg, note=""):
+        """记录体重测量。
+
+        Args:
+            date_str: 日期字符串 (YYYY-MM-DD)
+            weight_kg: 体重（公斤）
+            note: 备注
+        """
+        self.conn.execute(
+            "INSERT OR REPLACE INTO weights (date, weight_kg, note) VALUES (?, ?, ?)",
+            (date_str, weight_kg, note),
+        )
+        self.conn.commit()
+
+    def get_weight_history(self, limit=None):
+        """获取体重历史，最近的在前面。
+
+        Args:
+            limit: 返回条数上限，None 表示全部
+
+        Returns:
+            list[dict]: 体重记录列表
+        """
+        if limit:
+            cursor = self.conn.execute(
+                "SELECT date, weight_kg, note FROM weights ORDER BY date DESC LIMIT ?",
+                (limit,),
+            )
+        else:
+            cursor = self.conn.execute(
+                "SELECT date, weight_kg, note FROM weights ORDER BY date DESC"
+            )
+        return [{"date": row[0], "weight_kg": row[1], "note": row[2]}
+                for row in cursor.fetchall()]
+
+    def get_latest_weight(self):
+        """获取最近一次体重记录。
+
+        Returns:
+            dict | None: {"date", "weight_kg", "note"} 或 None
+        """
+        cursor = self.conn.execute(
+            "SELECT date, weight_kg, note FROM weights ORDER BY date DESC LIMIT 1"
+        )
+        row = cursor.fetchone()
+        if row:
+            return {"date": row[0], "weight_kg": row[1], "note": row[2]}
+        return None
+
+    def get_weekly_stats(self, start_date, end_date):
+        """获取一周的聚合统计数据。
+
+        Args:
+            start_date: 周起始日期 (YYYY-MM-DD)
+            end_date: 周结束日期 (YYYY-MM-DD)
+
+        Returns:
+            dict: {check_ins, skips, days_count, total_tiles, max_tiles, min_tiles, coins}
+        """
+        rows = self.conn.execute(
+            "SELECT completed, extra, used_skip, coins_earned FROM days "
+            "WHERE date >= ? AND date <= ?",
+            (start_date, end_date),
+        ).fetchall()
+
+        check_ins = sum(1 for r in rows if r[0] > 0)
+        skips = sum(1 for r in rows if r[2] == 1)
+        tiles_per_day = [r[0] + r[1] for r in rows if r[0] + r[1] > 0]
+        total_tiles = sum(tiles_per_day)
+        max_tiles = max(tiles_per_day) if tiles_per_day else 0
+        min_tiles = min(tiles_per_day) if tiles_per_day else 0
+        coins = sum(r[3] for r in rows)
+
+        return {
+            "check_ins": check_ins,
+            "skips": skips,
+            "days_count": len(rows),
+            "total_tiles": total_tiles,
+            "max_tiles": max_tiles,
+            "min_tiles": min_tiles,
+            "coins": coins,
+        }
+
+    def add_override(self, created_date, field, original_value, override_value, expires_date=None, reason=""):
+        """添加计划覆盖（来自 talk 命令的临时修改）。
+
+        Args:
+            created_date: 创建日期 (YYYY-MM-DD)
+            field: 覆盖字段名，如 'daily_task'
+            original_value: 原始值
+            override_value: 覆盖值
+            expires_date: 过期日期，None 表示手动恢复
+            reason: 原因说明
+
+        Returns:
+            int: 新记录的 id
+        """
+        self.conn.execute(
+            "INSERT INTO plan_overrides (created_date, expires_date, field, "
+            "original_value, override_value, reason) VALUES (?, ?, ?, ?, ?, ?)",
+            (created_date, expires_date, field, original_value, override_value, reason),
+        )
+        self.conn.commit()
+        return self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    def get_active_overrides(self, field=None, check_date=None):
+        """获取活跃的计划覆盖。
+
+        Args:
+            field: 按字段名过滤，None 返回所有
+            check_date: 检查日期，默认今天
+
+        Returns:
+            list[dict]: 活跃覆盖列表
+        """
+        if check_date is None:
+            check_date = date.today().isoformat()
+
+        query = (
+            "SELECT id, created_date, expires_date, field, original_value, "
+            "override_value, reason FROM plan_overrides "
+            "WHERE active = 1 AND (expires_date IS NULL OR expires_date >= ?)"
+        )
+        params = [check_date]
+
+        if field:
+            query += " AND field = ?"
+            params.append(field)
+
+        cursor = self.conn.execute(query, params)
+        return [
+            {
+                "id": row[0], "created_date": row[1], "expires_date": row[2],
+                "field": row[3], "original_value": row[4], "override_value": row[5],
+                "reason": row[6],
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def deactivate_override(self, override_id):
+        """停用一条计划覆盖。
+
+        Args:
+            override_id: 覆盖记录 id
+        """
+        self.conn.execute(
+            "UPDATE plan_overrides SET active = 0 WHERE id = ?", (override_id,)
+        )
+        self.conn.commit()
 
     def close(self):
         self.conn.close()

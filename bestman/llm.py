@@ -116,3 +116,72 @@ def chat_with_coach(client, user_message, context):
         {"role": "user", "content": user_message},
     ]
     return client.chat(messages, temperature=0.8, max_tokens=400)
+
+
+def review_summary(client, context):
+    """生成每周回顾的导航员总结。
+
+    Args:
+        client: LLMClient 实例
+        context: dict 包含 week_number, check_ins, days_in_week, skips,
+                streak, total_tiles, avg_tiles, max_tiles, min_tiles, coins
+
+    Returns:
+        str | None: 导航员总结，1-2 句话，不可用时返回 None
+    """
+    if not client.available:
+        return None
+
+    messages = [
+        {"role": "system", "content": (
+            "你是 bestman 号的 AI 导航员，一位经验丰富的老航海士。"
+            "根据本周的航行数据，给出一句鼓励式的总结。"
+            "回复 1-2 句话，用航海意象。"
+            "如果数据不理想，可以说'风向会变的'之类鼓励的话；"
+            "如果很好，热情表扬。"
+        )},
+        {"role": "user", "content": (
+            f"第 {context['week_number']} 周航行数据：\n"
+            f"- 打卡 {context['check_ins']}/{context['days_in_week']} 天\n"
+            f"- 跳过 {context['skips']} 天\n"
+            f"- 连击 {context['streak']} 天\n"
+            f"- 总航行 {context['total_tiles']} 海里，平均每天 {context['avg_tiles']:.1f} 海里\n"
+            f"- 最远 {context['max_tiles']} 海里，最短 {context['min_tiles']} 海里\n"
+            f"- 金币 +{context['coins']}\n\n"
+            f"写一句本周航行回顾。"
+        )},
+    ]
+    return client.chat(messages, temperature=0.8, max_tokens=150)
+
+
+def weigh_comment(client, current_weight, prev_weight, target_weight, trend_description):
+    """生成体重记录的导航员评论。
+
+    Args:
+        client: LLMClient 实例
+        current_weight: 当前体重 (kg)
+        prev_weight: 上次体重 (kg) 或 None
+        target_weight: 目标体重 (kg) 或 None
+        trend_description: 趋势描述文本
+
+    Returns:
+        str | None: 导航员评论，1-2 句话，不可用时返回 None
+    """
+    if not client.available:
+        return None
+
+    prev_text = f"上次 {prev_weight} kg" if prev_weight is not None else "首次记录"
+    target_text = f"，距目标 {current_weight - target_weight:.1f} kg" if target_weight is not None else ""
+
+    messages = [
+        {"role": "system", "content": (
+            "你是 bestman 号的 AI 导航员。水手刚记录了体重。"
+            "简短评论趋势和健康程度。1-2 句话，用航海意象。"
+        )},
+        {"role": "user", "content": (
+            f"水手体重：{current_weight} kg。{prev_text}{target_text}。\n"
+            f"趋势：{trend_description}\n"
+            f"简短评论一下。"
+        )},
+    ]
+    return client.chat(messages, temperature=0.8, max_tokens=150)
