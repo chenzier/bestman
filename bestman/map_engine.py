@@ -1,20 +1,65 @@
+import random
+
+
 class MapEngine:
     def __init__(self, total_days=175, milestones=None):
         self.total_days = total_days
         self.milestones = milestones or {}
         self.cols = 20
         self.rows = (total_days + self.cols - 1) // self.cols
+        self._decorations = {}
+        self._generate_decorations()
+
+    def _generate_decorations(self):
+        """在已探索区域生成随机装饰，用固定种子保证确定性。"""
+        r = random.Random(42)
+        for i in range(1, self.total_days):  # 跳过第 0 格
+            if i in self.milestones:
+                continue
+            roll = r.random()
+            if roll < 0.15:
+                self._decorations[i] = "\U0001f41f"  # 🐟
+            elif roll < 0.22:
+                self._decorations[i] = "\u2b50"  # ⭐
 
     def _tile_char(self, i, tiles_revealed):
-        """Return Rich markup for tile at position i."""
-        if tiles_revealed == 0 or i > tiles_revealed:
-            return "[dim blue]\u2592[/]"
-        if i < tiles_revealed:
+        """返回 Rich markup 字符串。"""
+        # 终点：航程完成，最后一个格子显示 🏁
+        if tiles_revealed >= self.total_days and i == self.total_days - 1:
+            return "[bold green]\U0001f3c1[/]"  # 🏁
+
+        if i > tiles_revealed:
+            # 未探索区域
+            r = random.Random(i * 137 + 42)
+            if r.random() < 0.1:
+                return "[dim blue]\u2591[/]"  # ░
+            # 前方 5 格内里程碑线索
+            for mi in self.milestones:
+                if 0 < mi - tiles_revealed <= 5 and abs(i - mi) <= 1:
+                    return "[blue]\u2591[/]"  # ░
+            return "[dim blue]\u2593[/]"  # ▓
+
+        if i == tiles_revealed:
+            # 船位
             if i in self.milestones:
-                return "[bold magenta]\u2726[/]"
-            return "[cyan]~[/]"
-        # i == tiles_revealed
-        return "[bold yellow]\u2693[/]"
+                return "[bold magenta]\u2726[/]"  # ✦ 到达里程碑
+            return "[bold yellow]\u2693[/]"  # ⚓
+
+        # 已探索区域
+        distance = tiles_revealed - i
+
+        if i in self.milestones:
+            if distance <= 3:
+                return "[bold magenta]\u2726[/]"  # ✦ 刚到达
+            return "[dim magenta]\u2726[/]"  # ✦ 走过的
+
+        if distance <= 3:
+            return "[bold cyan]\u2248[/]"  # ≈ 尾迹
+
+        if i in self._decorations:
+            return f"[cyan]{self._decorations[i]}[/]"
+
+        return "[cyan]~[/]"
 
     def render(self, tiles_revealed=0):
         """Return Rich markup string for the map."""
@@ -49,7 +94,5 @@ VOYAGE_LOG_TEMPLATES = [
 
 def get_log_entry(day, _stage=None):
     """Return a deterministic voyage log entry for the given day."""
-    import random
-
     random.seed(day)
     return random.choice(VOYAGE_LOG_TEMPLATES)

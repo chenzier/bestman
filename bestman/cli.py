@@ -157,7 +157,10 @@ def done():
         console.print()
 
     # 地图更新
-    console.print("[dim]地图更新：[/dim]")
+    tiles = result["tiles_revealed"]
+    total = status["total_days"]
+    rule_text = f"⚓ 第 {tiles} 天 · {stage_name}"
+    console.print(Rule(rule_text, style="dim cyan"))
     console.print(voyage.render_map())
     console.print()
 
