@@ -12,6 +12,7 @@ class BestmanState:
         self.conn = sqlite3.connect(self.db_path)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self._init_tables()
+        self._migrate()
 
     def _init_tables(self):
         self.conn.execute("""
@@ -34,10 +35,26 @@ class BestmanState:
         """)
         self.conn.commit()
 
-    def record_day(self, day, completed=1, extra=0, task_done=""):
+    def _migrate(self):
+        """创建 skip_tokens 表（如果不存在）。"""
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='skip_tokens'"
+        )
+        if not cursor.fetchone():
+            self.conn.execute("""
+                CREATE TABLE skip_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    earned_date TEXT NOT NULL,
+                    used INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            self.conn.commit()
+
+    def record_day(self, day, completed=1, extra=0, task_done="", used_skip=0):
         self.conn.execute(
-            "INSERT OR REPLACE INTO days (date, completed, extra, task_done) VALUES (?, ?, ?, ?)",
-            (day, completed, extra, task_done),
+            "INSERT OR REPLACE INTO days (date, completed, extra, task_done, used_skip) VALUES (?, ?, ?, ?, ?)",
+            (day, completed, extra, task_done, used_skip),
         )
         self.conn.commit()
 
@@ -60,6 +77,79 @@ class BestmanState:
             "SELECT COUNT(*) FROM days WHERE completed=1"
         )
         return cursor.fetchone()[0]
+
+    def get_streak(self, reference_date=None):
+        """计算连续打卡天数（包括 used_skip=1 的天）。
+
+        从 reference_date 往回数，统计连续满足 completed=1 或 used_skip=1 的天数。
+        如果最近记录与 reference_date 的间隔超过 1 天，返回 0。
+
+        Args:
+            reference_date: 参考日期字符串 (YYYY-MM-DD)，默认今天
+
+        Returns:
+            int: 连续天数
+        """
+        if reference_date is None:
+            reference_date = date.today().isoformat()
+
+        ref = date.fromisoformat(reference_date)
+
+        rows = self.conn.execute(
+            "SELECT date FROM days WHERE date <= ? AND (completed=1 OR used_skip=1) ORDER BY date DESC",
+            (reference_date,),
+        ).fetchall()
+
+        if not rows:
+            return 0
+
+        most_recent = date.fromisoformat(rows[0][0])
+        if (ref - most_recent).days > 1:
+            return 0
+
+        streak = 1
+        for i in range(len(rows) - 1):
+            curr = date.fromisoformat(rows[i][0])
+            prev = date.fromisoformat(rows[i + 1][0])
+            if (curr - prev).days == 1:
+                streak += 1
+            else:
+                break
+
+        return streak
+
+    def add_skip_token(self, earned_date):
+        """发放一枚跳过令牌。"""
+        self.conn.execute(
+            "INSERT INTO skip_tokens (earned_date) VALUES (?)",
+            (earned_date,),
+        )
+        self.conn.commit()
+
+    def get_available_skip_tokens(self):
+        """返回可用跳过令牌数。"""
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM skip_tokens WHERE used=0"
+        )
+        return cursor.fetchone()[0]
+
+    def use_skip_token(self):
+        """使用一枚跳过令牌。
+
+        Returns:
+            bool: True 表示使用成功，False 表示无可用令牌
+        """
+        cursor = self.conn.execute(
+            "SELECT id FROM skip_tokens WHERE used=0 ORDER BY id ASC LIMIT 1"
+        )
+        row = cursor.fetchone()
+        if row:
+            self.conn.execute(
+                "UPDATE skip_tokens SET used=1 WHERE id=?", (row[0],)
+            )
+            self.conn.commit()
+            return True
+        return False
 
     def save_log(self, day, text):
         self.conn.execute(

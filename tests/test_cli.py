@@ -34,11 +34,20 @@ def mock_voyage():
             "stage": {"name": "启航", "start": 1, "end": 25},
             "today_done": False,
             "completed_days": 0,
+            "streak": 0,
+            "skip_tokens": 0,
         }
         mock_inst.get_daily_task.return_value = "死虫式 3×10 + 静蹲 2×30秒"
         mock_inst.render_map.return_value = "MOCK_MAP_HERE"
         mock_inst.get_logs.return_value = []
         mock_inst.is_initialized.return_value = True
+        mock_inst.skip.return_value = {
+            "success": True,
+            "message": "已使用一枚跳过令牌。剩余令牌：0 枚",
+            "tiles_revealed": 5,
+            "log_entry": "今日使用跳过令牌。船队在避风港暂歇。",
+            "error": None,
+        }
 
         yield {"cls": mock_cls, "inst": mock_inst}
 
@@ -82,6 +91,18 @@ class TestDashboard:
         assert "0/175" in result.output
 
     @patch("bestman.cli.BESTMAN_HOME")
+    def test_dashboard_skip_hint_when_tokens(self, mock_home, mock_voyage, runner):
+        """有令牌且今日未完成时显示 skip 提示。"""
+        mock_home.is_dir.return_value = True
+        mock_voyage["inst"].get_status.return_value["skip_tokens"] = 3
+
+        result = runner.invoke(main)
+
+        assert result.exit_code == 0
+        assert "bestman skip" in result.output
+        assert "3 枚可用" in result.output
+
+    @patch("bestman.cli.BESTMAN_HOME")
     def test_dashboard_not_initialized(self, mock_home, runner):
         """未初始化时提示 init。"""
         mock_home.is_dir.return_value = False
@@ -102,6 +123,19 @@ class TestDashboard:
 
         assert result.exit_code == 0
         assert "今日任务已完成" in result.output
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_dashboard_shows_streak_and_tokens(self, mock_home, mock_voyage, runner):
+        """仪表盘显示连击和令牌。"""
+        mock_home.is_dir.return_value = True
+        mock_voyage["inst"].get_status.return_value["streak"] = 5
+        mock_voyage["inst"].get_status.return_value["skip_tokens"] = 2
+
+        result = runner.invoke(main)
+
+        assert result.exit_code == 0
+        assert "5 天连击" in result.output
+        assert "2 枚令牌" in result.output
 
     @patch("bestman.cli.BESTMAN_HOME")
     def test_dashboard_shows_logs(self, mock_home, mock_voyage, runner):
@@ -215,6 +249,48 @@ class TestDoneCommand:
         assert "航程结束" in result.output
 
 
+class TestSkipCommand:
+    """bestman skip 测试。"""
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_skip_success(self, mock_home, mock_voyage, runner):
+        """skip 成功消耗令牌。"""
+        mock_home.is_dir.return_value = True
+
+        result = runner.invoke(main, ["skip"])
+
+        assert result.exit_code == 0
+        assert "已使用一枚跳过令牌" in result.output
+        assert "船队在避风港暂歇" in result.output
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_skip_no_tokens(self, mock_home, mock_voyage, runner):
+        """无令牌时 skip 显示提示。"""
+        mock_home.is_dir.return_value = True
+        mock_voyage["inst"].skip.return_value = {
+            "success": False,
+            "message": "没有可用的跳过令牌。连续打卡 7 天可获得一枚。",
+            "tiles_revealed": 5,
+            "log_entry": None,
+            "error": "没有可用令牌",
+        }
+
+        result = runner.invoke(main, ["skip"])
+
+        assert result.exit_code == 0
+        assert "没有可用令牌" in result.output
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_skip_not_initialized(self, mock_home, runner):
+        """未 init 时 skip 提示 init。"""
+        mock_home.is_dir.return_value = False
+
+        result = runner.invoke(main, ["skip"])
+
+        assert result.exit_code == 1
+        assert "尚未初始化" in result.output
+
+
 class TestLogCommand:
     """bestman log 测试。"""
 
@@ -276,6 +352,7 @@ class TestHelp:
         assert "航向新大陆" in result.output
         assert "init" in result.output
         assert "done" in result.output
+        assert "skip" in result.output
         assert "log" in result.output
 
     def test_init_help(self, runner):
