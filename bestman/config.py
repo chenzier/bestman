@@ -8,6 +8,10 @@ from dotenv import load_dotenv
 BESTMAN_HOME = Path.home() / ".bestman"
 
 DEFAULT_CONFIG = {
+    "map": {
+        "width": 50,
+        "height": 14,
+    },
     "voyage": {
         "theme": "naval",
         "total_days": 175,

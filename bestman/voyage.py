@@ -37,15 +37,7 @@ class Voyage:
         )
 
         self.state = BestmanState()
-        # MapEngine uses stages for segmented rendering
-        stages = self.config["voyage"]["stages"]
-        raw_milestones = self.config["voyage"]["milestones"]
-        theme = self.config["voyage"].get("theme", "naval")
-        self.map_engine = MapEngine(
-            stages=stages,
-            milestones={k - 1: v for k, v in raw_milestones.items()},
-            theme=theme,
-        )
+        self.map_engine = MapEngine(self.config)
         self.event_engine = EventEngine(self.config)
 
     def get_status(self) -> dict:
@@ -76,6 +68,7 @@ class Voyage:
             "total_days": total_days,
             "remaining": remaining,
             "stage": stage,
+            "region": self.map_engine.get_region_at(tiles_revealed),
             "today_done": self.state.today_recorded(),
             "completed_days": self.state.get_completed_days(),
             "streak": self.state.get_streak(),

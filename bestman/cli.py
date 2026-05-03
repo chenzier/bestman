@@ -53,21 +53,18 @@ def _dashboard():
     console.print(Rule("[bold cyan]bestman — 航向新大陆[/bold cyan]"))
     console.print()
 
-    # 分段地图
+    # 2D 世界地图
     console.print(voyage.render_map())
     console.print()
 
     # 状态行
-    tiles = status["tiles_revealed"]
     total = status["total_days"]
-    stage_name = status["stage"]["name"]
-    streak = status["completed_days"]
+    region = status.get("region", status["stage"]["name"])
     console.print(
         f"DAY {status['current_day']}/{total} · "
-        f"[bold yellow]{stage_name}[/bold yellow] · "
+        f"[bold yellow]{region}[/bold yellow] · "
         f"剩余 {status['remaining']} 天"
     )
-    console.print(f"[dim]🔥 连击 {streak} 天[/dim]")
     console.print()
 
     # 今日任务
@@ -240,8 +237,8 @@ def done(extra):
     # 日志
     tiles = result["tiles_revealed"]
     status = voyage.get_status()
-    stage_name = status["stage"]["name"]
-    console.print(f"Day {tiles} · [bold yellow]{stage_name}[/bold yellow]")
+    region = status.get("region", status["stage"]["name"])
+    console.print(f"Day {tiles} · [bold yellow]{region}[/bold yellow]")
     console.print(f"[cyan]{result['log_entry']}[/cyan]")
     console.print()
 
@@ -267,7 +264,7 @@ def done(extra):
     # 地图更新
     tiles = result["tiles_revealed"]
     total = status["total_days"]
-    rule_text = f"⚓ 第 {tiles} 天 · {stage_name}"
+    rule_text = f"⚓ 第 {tiles} 天 · {region}"
     console.print(Rule(rule_text, style="dim cyan"))
     console.print(voyage.render_map())
     console.print()
