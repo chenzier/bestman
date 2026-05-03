@@ -4,6 +4,40 @@ All notable changes to bestman will be documented in this file.
 
 ---
 
+## v1.2.0 (2026-05-04) — 计划系统 + 地图增强
+
+### 新增
+
+**计划系统**（回归产品本体）
+- `bestman plan create` — 交互式制定健身计划：选择目标（减肥/增肌/习惯/自定义）、输入体重、周期、运动基础、偏好，LLM 生成分阶段计划保存到 `~/.bestman/plan.yaml`
+- `bestman plan show` — 查看当前计划（目标、阶段、里程碑、每日任务）
+- `bestman plan edit` — 用 `$EDITOR` 直接编辑 plan.yaml
+
+**回顾 + 身体数据**
+- `bestman review` — 周回顾：聚合打卡率、航行距离、金币 + LLM 总结
+- `bestman weigh 128.5` — 记录体重，自动计算 delta、距目标距离
+- `bestman progress` — 体重趋势图（最近 4 次记录），周均变化 + 预计达标日期
+
+**自适应计划**
+- `bestman talk` 支持修改计划——教练对话中可以说"膝盖不舒服"，教练自动临时替换动作（如静蹲 → 坐姿抬腿），N 天后自动恢复
+
+**地图增强**
+- 今日航线高亮动画——done 后今天走过的 tile 金色闪烁
+- 船体摇摆动画——抵达新 tile 后船身左右摇摆再稳定（1.5 秒）
+- 光标重绘代替 `console.clear()`，无闪屏
+
+**手动日志**
+- `bestman done -m "今天下雨，室内俯卧撑 50×3"` — 跳过 LLM，手写日志文本
+
+### 改动
+
+- `bestman plan` 命令改名为 `bestman map`（释放 plan 命名空间）
+- 掷骰互动模式优化：数字显示 + 稀有结果加权
+- 配置：`config.yaml` 加 `today_trail.sway` 动画配置段
+- 245 tests（+15）
+
+---
+
 ## v1.1.0 (2026-05-04) — 2D 世界 + 掷骰 + 宝藏
 
 ### 新增
