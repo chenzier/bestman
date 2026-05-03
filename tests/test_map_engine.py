@@ -396,3 +396,113 @@ def test_get_log_entry_returns_string():
         entry = get_log_entry(day)
         assert isinstance(entry, str)
         assert len(entry) > 0
+
+
+# ── today_advance tests ──
+
+
+class TestTodayAdvance:
+    """Tests for today's trail highlighting (today_advance parameter)."""
+
+    def test_today_advance_adds_bright_red(self):
+        """When today_advance > 0, today's tiles get bold bright_red styling."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=10, today_advance=3)
+        assert "bold bright_red" in rendered
+
+    def test_today_advance_zero_no_highlight(self):
+        """When today_advance=0, no bright_red styling appears."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=10, today_advance=0)
+        assert "bright_red" not in rendered
+
+    def test_today_advance_single_tile(self):
+        """Single tile advance still shows bright_red."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=10, today_advance=1)
+        assert "bold bright_red" in rendered
+
+    def test_today_advance_mid_voyage(self):
+        """Today highlight works at various voyage positions."""
+        engine = MapEngine(make_config())
+        for tiles in [5, 50, 120]:
+            rendered = engine.render(tiles_revealed=tiles, today_advance=2)
+            assert "bold bright_red" in rendered, f"Missing highlight at tiles={tiles}"
+
+    def test_today_advance_does_not_break_grid(self):
+        """All rows still have correct width with today_advance."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=50, today_advance=3)
+        widths = {len(strip_rich_markup(line)) for line in rendered.split("\n")}
+        assert len(widths) == 1, f"Inconsistent widths: {widths}"
+
+    def test_today_advance_does_not_crash(self):
+        """Various today_advance values never crash."""
+        engine = MapEngine(make_config())
+        for advance in [0, 1, 2, 3, 10, 50, 175]:
+            rendered = engine.render(tiles_revealed=25, today_advance=advance)
+            assert rendered is not None, f"None at today_advance={advance}"
+            assert len(rendered.split("\n")) == GRID_HEIGHT
+
+    def test_today_advance_near_wake_still_bold(self):
+        """Tiles in NEAR_WAKE but not today's still get bold terrain color."""
+        engine = MapEngine(make_config())
+        # At tiles=10, today_advance=1: only tile 9 is "today"
+        # Tiles 5-8 are "near wake" with bold terrain color
+        rendered = engine.render(tiles_revealed=10, today_advance=1)
+        # Should have both bold bright_red and bold terrain colors
+        assert "bold" in rendered
+
+    def test_today_advance_fade_beyond_today(self):
+        """Tiles beyond today_advance use normal dim/bold terrain styling."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=20, today_advance=3)
+        # Old tiles (far behind) should use 'dim' style
+        assert "dim" in rendered
+
+
+# ── sway tests ──
+
+
+class TestSway:
+    """Tests for the ship sway animation offset (sway_offset parameter)."""
+
+    def test_sway_zero_no_effect(self):
+        """sway_offset=0.0 produces same output as no sway_offset."""
+        engine = MapEngine(make_config())
+        no_sway = engine.render(tiles_revealed=25)
+        zero_sway = engine.render(tiles_revealed=25, sway_offset=0.0)
+        assert no_sway == zero_sway
+
+    def test_sway_keeps_grid_width(self):
+        """All rows maintain correct width after sway."""
+        engine = MapEngine(make_config())
+        for offset in [0.5, 1.0, 1.5, 2.0]:
+            rendered = engine.render(tiles_revealed=25, sway_offset=offset)
+            widths = {len(strip_rich_markup(line)) for line in rendered.split("\n")}
+            assert len(widths) == 1, f"Inconsistent widths at offset={offset}: {widths}"
+
+    def test_sway_does_not_crash(self):
+        """Various sway_offset values never crash."""
+        engine = MapEngine(make_config())
+        for offset in [-2.0, -1.0, 0.0, 0.5, 1.0, 2.0, 3.0]:
+            rendered = engine.render(tiles_revealed=25, sway_offset=offset)
+            assert rendered is not None, f"None at sway_offset={offset}"
+            assert len(rendered.split("\n")) == GRID_HEIGHT
+
+    def test_sway_with_today_advance(self):
+        """Sway and today_advance work together without crashing."""
+        engine = MapEngine(make_config())
+        rendered = engine.render(tiles_revealed=25, today_advance=3, sway_offset=1.5)
+        assert rendered is not None
+        assert len(rendered.split("\n")) == GRID_HEIGHT
+        widths = {len(strip_rich_markup(line)) for line in rendered.split("\n")}
+        assert len(widths) == 1
+
+    def test_sway_positive_offset_shifts_some_rows(self):
+        """Positive sway_offset causes visible row shifting (fog at edges)."""
+        engine = MapEngine(make_config())
+        no_sway = engine.render(tiles_revealed=25, sway_offset=0.0)
+        with_sway = engine.render(tiles_revealed=25, sway_offset=2.0)
+        # Rows should differ because sway adds fog at edges
+        assert no_sway != with_sway

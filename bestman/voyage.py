@@ -87,13 +87,19 @@ class Voyage:
         """
         return self.config["voyage"]["default_daily_task"]
 
-    def render_map(self) -> str:
+    def render_map(self, today_advance=0, sway_offset=0.0) -> str:
         """渲染像素地图。
+
+        Args:
+            today_advance: 今日推进格数，用于高亮今天的足迹。
+            sway_offset: 摇摆幅度，用于船体摇晃动画。
 
         Returns:
             str: Rich markup 地图字符串
         """
-        return self.map_engine.render(self.state.get_tiles_revealed())
+        return self.map_engine.render(self.state.get_tiles_revealed(),
+                                      today_advance=today_advance,
+                                      sway_offset=sway_offset)
 
     def _roll_distance(self, day_seed):
         """掷骰子，决定今日航行距离。

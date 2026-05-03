@@ -74,6 +74,12 @@ class MapEngine:
         self.milestones = config.get("voyage", {}).get("milestones", {})
         self.theme_name = config.get("voyage", {}).get("theme", "naval")
         self._theme = get_theme(self.theme_name)
+        self.today_trail = config.get("today_trail", {
+            "style": "custom",
+            "color": "bright_red",
+            "fade_steps": 3,
+            "sway": {"enabled": True, "amplitude": 2, "fps": 8, "duration": 0.6},
+        })
 
         # Generate route from stage definitions
         self._route = self._generate_route()
@@ -269,12 +275,17 @@ class MapEngine:
 
     # ── rendering ─────────────────────────────────────────────────
 
-    def render(self, tiles_revealed=0):
+    def render(self, tiles_revealed=0, today_advance=0, sway_offset=0.0):
         """Render the full 2D map grid.
 
         Args:
             tiles_revealed: Number of tiles revealed (0-based count
                             from state, maps to route index for ship).
+            today_advance: Number of tiles advanced today (distance + extra).
+                           Used to highlight today's trail with fade levels.
+            sway_offset: Sway amplitude multiplier for ship sway animation.
+                         Typically ranges from amplitude down to 0.0.
+                         0.0 means no sway.
 
         Returns:
             Rich markup string with the full grid.
@@ -294,7 +305,22 @@ class MapEngine:
                 continue
             char, color = self._terrain_for_tile(i)
             dist_behind = tiles_revealed - i
-            if dist_behind <= NEAR_WAKE:
+
+            if today_advance > 0 and dist_behind <= today_advance:
+                # Today's trail with fade levels
+                step = today_advance - dist_behind  # 0=oldest, today_advance-1=newest
+                fade_steps = self.today_trail.get("fade_steps", 3)
+                divisor = max(1, today_advance // fade_steps) + 1
+                fade_level = step // divisor
+                today_color = self.today_trail.get("color", "bright_red")
+
+                if fade_level == 0:
+                    style = f"bold {today_color}"
+                elif fade_level == 1:
+                    style = f"bold {color}"
+                else:
+                    style = f"{color}"
+            elif dist_behind <= NEAR_WAKE:
                 style = f"bold {color}"
             else:
                 style = f"dim {color}"
@@ -332,6 +358,19 @@ class MapEngine:
             x, y = self._route[tiles_revealed]
             if 0 <= x < self.width and 0 <= y < self.height:
                 grid[y][x] = (SHIP_CHAR, SHIP_STYLE)
+
+        # Apply sway offset to each row (ship sway animation)
+        if sway_offset != 0.0:
+            for y in range(self.height):
+                offset = int(sway_offset * math.sin(y * 0.8))
+                if offset == 0:
+                    continue
+                row = grid[y]
+                if offset > 0:
+                    grid[y] = [(FOG_CHAR, FOG_STYLE)] * offset + row[:-offset]
+                else:
+                    offset = -offset
+                    grid[y] = row[offset:] + [(FOG_CHAR, FOG_STYLE)] * offset
 
         # Build Rich markup
         lines = []
