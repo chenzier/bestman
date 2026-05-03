@@ -1,10 +1,11 @@
 """bestman CLI — Click 命令行入口。
 
-五个命令：
+六个命令：
 - bestman init     初始化航行
 - bestman          仪表盘（默认）
 - bestman done     完成今日任务
 - bestman skip     使用跳过令牌
+- bestman plan     查看航行计划
 - bestman log      查看航海日志
 - bestman talk     与 AI 导航员对话
 """
@@ -115,6 +116,83 @@ def _dashboard():
         console.print("[dim]明天再来！运行 [bold green]bestman done[/bold green] 继续航行[/dim]")
     console.print("[dim]运行 [bold green]bestman log[/bold green] 查看航海日志[/dim]")
     console.print("[dim]运行 [bold green]bestman talk[/bold green] 与导航员对话[/dim]")
+
+
+def _render_plan_view(voyage):
+    """渲染航行计划概览：全部 7 个阶段、里程碑与进度。"""
+    status = voyage.get_status()
+    tiles = status["tiles_revealed"]
+    current_day = status["current_day"]
+
+    # 头
+    console.print()
+    console.print("[bold cyan]⚓ 航行计划 — 175 天航向新大陆[/bold cyan]")
+    streak = status.get("streak", 0)
+    streak_part = f" · [bold yellow]🔥 {streak} 天连击[/bold yellow]" if streak > 0 else ""
+    console.print(
+        f"  当前：DAY {current_day}/175 · "
+        f"[bold yellow]{status['stage']['name']}[/bold yellow] · "
+        f"剩余 {status['remaining']} 天{streak_part}"
+    )
+    console.print()
+
+    stages = voyage.config["voyage"]["stages"]
+    milestones = voyage.config["voyage"]["milestones"]
+
+    for stage in stages:
+        start, end = stage["days"]
+        stage_length = end - start + 1
+        name = stage["name"]
+
+        # 阶段状态
+        is_completed = tiles >= end
+        is_current = start <= (tiles + 1) <= end
+
+        if is_completed:
+            icon = "[bold green]✓[/bold green]"
+            name_style = "bold green"
+            bar_color = "bold green"
+            completed_in_stage = stage_length
+        elif is_current:
+            icon = "[bold yellow]◆[/bold yellow]"
+            name_style = "bold yellow"
+            bar_color = "bold yellow"
+            completed_in_stage = max(0, tiles - start + 1)
+        else:
+            icon = "[dim]◇[/dim]"
+            name_style = "dim"
+            bar_color = "dim"
+            completed_in_stage = 0
+
+        # 阶段内进度条
+        bar_width = 15
+        filled = int(bar_width * completed_in_stage / stage_length) if stage_length > 0 else 0
+        empty = bar_width - filled
+        bar = f"[{bar_color}]" + "█" * filled + "░" * empty + "[/]"
+
+        # 里程碑
+        milestone_name = milestones.get(end)
+        milestone_text = f"[dim]✦ 里程碑：DAY {end} · {milestone_name}[/dim]" if milestone_name else ""
+
+        console.print(f"  {icon} [{name_style}]{name}[/{name_style}]  DAY {start}-{end}  [{bar}] {completed_in_stage}/{stage_length}")
+        if milestone_text:
+            console.print(f"    {milestone_text}")
+
+    console.print()
+    console.print("[dim]计划源自 bestman init 时配置的航程。[/dim]")
+    console.print()
+
+
+@main.command()
+def plan():
+    """查看航行计划（所有阶段与里程碑）。
+
+    显示全部 7 个阶段的日程、进度条与里程碑，
+    清晰标记当前所在阶段。
+    """
+    _require_init()
+    voyage = Voyage()
+    _render_plan_view(voyage)
 
 
 @main.command()
