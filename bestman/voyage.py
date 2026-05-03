@@ -7,7 +7,9 @@
 - LLM 日志生成（llm）
 """
 
+import hashlib
 import os
+import random
 from datetime import date
 
 from bestman.config import BESTMAN_HOME, load_config, get_current_stage, load_env
@@ -89,13 +91,46 @@ class Voyage:
         """
         return self.map_engine.render(self.state.get_tiles_revealed())
 
-    def complete(self, date_str=None) -> dict:
-        """完成今日任务，推进一格。
+    def _roll_distance(self, day_seed):
+        """掷骰子，决定今日航行距离。
 
-        原子操作：检查 → 记录 → LLM 日志（fallback 模板） → 里程碑。
+        使用 date_str hash 作为种子，保证同一天掷骰结果确定（可重放）。
+
+        Args:
+            day_seed: 种子字符串（日期）
+
+        Returns:
+            tuple: (distance: int, description: str)
+        """
+        dice_config = self.config.get("dice", {})
+        weights = dice_config.get("weights", [60, 30, 10])
+        descriptions = dice_config.get("descriptions", {
+            1: "风平浪静，缓缓前行",
+            2: "顺风满帆，航行两格",
+            3: "暴风助力，航行三格！",
+        })
+
+        seed = int(hashlib.md5(str(day_seed).encode()).hexdigest()[:8], 16)
+        rng = random.Random(seed)
+        roll = rng.random()
+
+        w1 = weights[0] / 100
+        w2 = (weights[0] + weights[1]) / 100
+        if roll < w1:
+            return 1, descriptions[1]
+        elif roll < w2:
+            return 2, descriptions[2]
+        else:
+            return 3, descriptions[3]
+
+    def complete(self, date_str=None, extra_tiles=0) -> dict:
+        """完成今日任务，掷骰子推进。
+
+        原子操作：检查 → 掷骰 → 记录 → LLM 日志（fallback 模板） → 里程碑。
 
         Args:
             date_str: 日期字符串 (YYYY-MM-DD)，默认今天
+            extra_tiles: 额外推进格数（-e 参数叠加）
 
         Returns:
             dict: {
@@ -107,6 +142,7 @@ class Voyage:
                 "event": dict | None,      # 触发的事件（如果触发）
                 "error": str | None,       # 错误信息（如果失败）
                 "llm_used": bool,          # 是否使用了 LLM 生成日志
+                "dice": dict | None,       # 掷骰结果
             }
         """
         if date_str is None:
@@ -123,10 +159,16 @@ class Voyage:
                 "event": None,
                 "error": "今日已经打卡",
                 "llm_used": False,
+                "dice": None,
             }
 
-        # 记录（state 参数名是 day）
-        self.state.record_day(date_str, completed=1, extra=0)
+        # 掷骰子 + 手动超额
+        old_tiles = self.state.get_tiles_revealed()
+        distance, description = self._roll_distance(date_str)
+        total_advance = distance + extra_tiles
+
+        # 记录
+        self.state.record_day(date_str, completed=total_advance, extra=0)
 
         # 获取新状态
         tiles_revealed = self.state.get_tiles_revealed()
@@ -144,16 +186,17 @@ class Voyage:
         if log_entry is not None:
             llm_used = True
         else:
-            # 确定性 fallback：产品不能崩
             log_entry = get_log_entry(current_day)
 
         self.state.save_log(date_str, log_entry)
 
-        # 检查里程碑
+        # 检测跨越的里程碑（可能一次跨越多个）
         milestone = None
         milestones = self.config["voyage"]["milestones"]
-        if current_day in milestones:
-            milestone = milestones[current_day]
+        crossed = [m_name for m_day, m_name in milestones.items()
+                    if old_tiles < m_day <= tiles_revealed]
+        if crossed:
+            milestone = " | ".join(crossed)
 
         # 检查随机事件
         event = self.event_engine.check(current_day)
@@ -165,13 +208,18 @@ class Voyage:
 
         return {
             "success": True,
-            "message": "完成！推进了 1 格",
+            "message": f"🎲 掷出：{description}！航行 {total_advance} 海里",
             "tiles_revealed": tiles_revealed,
             "log_entry": log_entry,
             "milestone": milestone,
             "event": event,
             "error": None,
             "llm_used": llm_used,
+            "dice": {
+                "distance": distance,
+                "description": description,
+                "extra_tiles": extra_tiles,
+            },
         }
 
     def talk(self, user_message) -> dict:
