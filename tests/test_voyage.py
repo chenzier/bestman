@@ -363,6 +363,21 @@ class TestComplete:
             "2026-05-03", "鲸群挑战！", event_type="event"
         )
 
+    def test_complete_with_manual_message(self, mock_deps):
+        """-m 参数传入手动日志文本，跳过 LLM 和模板。"""
+        mock_deps["state"].today_recorded.return_value = False
+        mock_deps["state"].get_tiles_revealed.side_effect = [0, 1]
+
+        voyage = Voyage()
+        result = voyage.complete("2026-05-03", message="今天下雨改室内，俯卧撑 50×3")
+
+        assert result["success"] is True
+        assert result["log_entry"] == "今天下雨改室内，俯卧撑 50×3"
+        assert result["llm_used"] is False
+        # 不应调用 LLM 或模板
+        mock_deps["gen_log"].assert_not_called()
+        mock_deps["get_log"].assert_not_called()
+
 
 class TestCompleteCoins:
     """complete() 金币产出测试。"""

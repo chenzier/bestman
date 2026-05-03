@@ -144,7 +144,7 @@ class Voyage:
         })
         return descriptions.get(distance, f"航行 {distance} 格")
 
-    def complete(self, date_str=None, extra_tiles=0, force=False, distance=None) -> dict:
+    def complete(self, date_str=None, extra_tiles=0, force=False, distance=None, message=None) -> dict:
         """完成今日任务，掷骰子推进。
 
         原子操作：检查 → 掷骰 → 金币计算 → 记录 → LLM 日志（fallback 模板） → 里程碑 → 事件 → 宝藏记录。
@@ -153,6 +153,7 @@ class Voyage:
             date_str: 日期字符串 (YYYY-MM-DD)，默认今天
             extra_tiles: 额外推进格数（-e 参数叠加）
             distance: 互动模式下由 CLI 传入的掷骰结果。传入时跳过 _roll_distance()。
+            message: 手动输入航行日志内容。传入时跳过 LLM 和模板生成。
 
         Returns:
             dict: {
@@ -261,19 +262,22 @@ class Voyage:
         tiles_revealed = self.state.get_tiles_revealed()
         current_day = tiles_revealed  # revealed 即 current day
 
-        # 生成日志：优先 LLM，不可用时 fallback 到模板
-        stage_name = get_current_stage(current_day, self.config)["name"]
-        remaining = max(0, self.config["voyage"]["total_days"] - current_day)
-        task_done = self.config["voyage"]["default_daily_task"]
-
+        # 生成日志：-m 手动输入优先，否则 LLM → fallback 到模板
         llm_used = False
-        log_entry = generate_voyage_log(
-            self.llm, stage_name, remaining, current_day, task_done
-        )
-        if log_entry is not None:
-            llm_used = True
+        if message is not None:
+            log_entry = message
         else:
-            log_entry = get_log_entry(current_day)
+            stage_name = get_current_stage(current_day, self.config)["name"]
+            remaining = max(0, self.config["voyage"]["total_days"] - current_day)
+            task_done = self.config["voyage"]["default_daily_task"]
+
+            log_entry = generate_voyage_log(
+                self.llm, stage_name, remaining, current_day, task_done
+            )
+            if log_entry is not None:
+                llm_used = True
+            else:
+                log_entry = get_log_entry(current_day)
 
         self.state.save_log(date_str, log_entry)
 
