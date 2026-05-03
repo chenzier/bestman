@@ -135,19 +135,25 @@ def init():
 
 
 @main.command()
-def done():
-    """完成今日任务，推进一格。
+@click.option("-e", "--extra", type=int, default=0, help="手动超额推进格数")
+def done(extra):
+    """完成今日任务，掷骰子推进 1-3 格。
 
     每天只能完成一次。完成后会生成航海日志并检查里程碑。
     LLM 可用时生成独特叙事，不可用时退回模板。
+
+    \b
+    示例：
+        bestman done           # 正常掷骰推进
+        bestman done -e 2      # 掷骰结果 + 额外 2 格
     """
     _require_init()
 
     voyage = Voyage()
 
     # 仿 hermes 的 Rich spinner 加载态
-    with console.status("[cyan]正在撰写今日航海日志...[/cyan]"):
-        result = voyage.complete()
+    with console.status("[cyan]掷骰中... 风浪多大，今日航行多远？[/cyan]"):
+        result = voyage.complete(extra_tiles=extra)
 
     if not result["success"]:
         console.print(f"[yellow]{result['error']}[/yellow]")
@@ -196,11 +202,22 @@ def done():
     console.print()
 
     if result["tiles_revealed"] >= status["total_days"]:
+        total = status["total_days"]
+        actual_days = status["completed_days"]
+        if actual_days < total:
+            early_text = (
+                f"🎉 提前抵达！只用了 {actual_days} 天就完成了 {total} 天的航程。\n"
+                "探索模式开启：你可以继续打卡，或者休息庆祝。"
+            )
+        else:
+            early_text = (
+                f"🎉 你已抵达新大陆！\n"
+                f"{total} 天的航海之旅圆满结束。\n"
+                "你可以站在婚礼上，自信而挺拔。"
+            )
         console.print(
             Panel(
-                "[bold yellow]🎉 你已抵达新大陆！[/bold yellow]\n"
-                "175 天的航海之旅圆满结束。\n"
-                "你可以站在婚礼上，自信而挺拔。",
+                f"[bold yellow]{early_text}[/bold yellow]",
                 title="航程结束",
                 border_style="yellow",
             )

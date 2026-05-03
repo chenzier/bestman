@@ -31,6 +31,14 @@ DEFAULT_CONFIG = {
             {"name": "新大陆近海", "days": [151, 175]},
         ],
     },
+    "dice": {
+        "weights": [60, 30, 10],
+        "descriptions": {
+            1: "风平浪静，缓缓前行",
+            2: "顺风满帆，航行两格",
+            3: "暴风助力，航行三格！",
+        },
+    },
     "events": [
         {
             "id": "tailwind",
