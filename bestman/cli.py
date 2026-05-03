@@ -1,6 +1,6 @@
 """bestman CLI — Click 命令行入口。
 
-六个命令：
+命令：
 - bestman init     初始化航行
 - bestman          仪表盘（默认）
 - bestman done     完成今日任务
@@ -8,6 +8,7 @@
 - bestman plan     查看航行计划
 - bestman log      查看航海日志
 - bestman talk     与 AI 导航员对话
+- bestman reset    重置所有数据
 """
 
 import random
@@ -483,6 +484,57 @@ def skip():
     console.print(f"[dim]{result['log_entry']}[/dim]")
     console.print()
     console.print("[dim]连击已保，明天继续前行！[/dim]")
+
+
+@main.command()
+@click.option("-y", "--yes", is_flag=True, help="跳过确认，直接重置")
+def reset(yes):
+    """重置所有航行数据。
+
+    清空打卡记录、航海日志、跳过令牌和宝藏。
+    需要手动确认以防范误操作。
+    """
+    _require_init()
+
+    voyage = Voyage()
+
+    # 统计现有数据
+    days_count = len(voyage.state.conn.execute("SELECT 1 FROM days").fetchall())
+    logs_count = len(voyage.state.conn.execute("SELECT 1 FROM voyage_logs").fetchall())
+    tokens_count = voyage.state.get_available_skip_tokens()
+    tokens_used = len(voyage.state.conn.execute("SELECT 1 FROM skip_tokens WHERE used=1").fetchall())
+    treasures_count = len(voyage.state.conn.execute("SELECT 1 FROM treasures").fetchall())
+    total_tokens = tokens_count + tokens_used
+
+    if days_count == 0 and logs_count == 0 and total_tokens == 0 and treasures_count == 0:
+        console.print("[dim]没有数据需要重置。[/dim]")
+        return
+
+    console.print()
+    console.print("[bold red]⚠ 即将重置所有数据[/bold red]")
+    console.print()
+    console.print(f"  打卡记录：[yellow]{days_count} 天[/yellow]")
+    console.print(f"  航海日志：[yellow]{logs_count} 条[/yellow]")
+    console.print(f"  跳过令牌：[yellow]{total_tokens} 枚[/yellow]（可用 {tokens_count}，已用 {tokens_used}）")
+    console.print(f"  宝藏记录：[yellow]{treasures_count} 条[/yellow]")
+    console.print()
+    console.print("[bold red]此操作不可撤销！[/bold red]")
+    console.print()
+
+    if yes:
+        confirmed = True
+    else:
+        confirmed = click.confirm("确认重置？输入 yes 继续", default=False, show_default=True)
+
+    if not confirmed:
+        console.print("[dim]已取消重置。[/dim]")
+        return
+
+    voyage.state.reset_all()
+    console.print()
+    console.print("[green]✓ 所有数据已重置[/green]")
+    console.print("[dim]航行记录已清空，可以从头开始。[/dim]")
+    console.print()
 
 
 @main.command()
