@@ -29,40 +29,61 @@ from bestman.voyage import Voyage
 
 console = Console()
 
-DICE_FACES = {1: "⚀", 2: "⚁", 3: "⚂"}
+DICE_FACES = {1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅"}
 
 
-def _interactive_roll(console):
-    """互动掷骰——用户按键停止滚动。
+def _interactive_roll(console, base_weights=None):
+    """互动掷骰——数字高频刷新，用户按键停止。
+
+    屏幕快速滚动 1-6，按任意键停止后用加权随机决定结果：
+    - 1-3 按配置权重分配（默认 60/30/10）
+    - 4 概率 6%、5 概率 5%、6 概率 3%
+
+    Args:
+        console: Rich Console 实例
+        base_weights: [w1, w2, w3] 权重列表，合计 100
 
     Returns:
-        int: 掷出的距离 (1-3)
+        int: 掷出的距离 (1-6)
     """
-    console.print("按 Enter 掷骰子 🎲")
+    if base_weights is None:
+        base_weights = [60, 30, 10]
 
-    # 保存终端设置，切换到 raw mode
+    # 构建加权概率分布：1-3 占 86%，4-6 分别占 6/5/3%
+    w1, w2, w3 = base_weights
+    base_total = w1 + w2 + w3
+    scale = 0.86
+    probs = [
+        (w1 / base_total) * scale,  # 1
+        (w2 / base_total) * scale,  # 2
+        (w3 / base_total) * scale,  # 3
+        0.06,                        # 4
+        0.05,                        # 5
+        0.03,                        # 6
+    ]
+
+    console.print("按任意键掷骰子 🎲")
+
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
-
-    faces = ["⚀", "⚁", "⚂"]
-    idx = random.randint(0, 99)  # 随机起点，不可预测
+    idx = random.randint(0, 99)
 
     try:
         tty.setraw(fd)
         while True:
             idx += 1
-            face = faces[idx % 3]
-            console.print(f"\r   🎲 {face}  按 Enter 停止！  ", end="\r")
-            # 非阻塞等待 80ms，检查是否有输入
-            ready, _, _ = select.select([sys.stdin], [], [], 0.08)
+            num = (idx % 6) + 1  # 屏幕只显示数字 1-6，不用骰子表情
+            console.print(f"\r   🎲 [ {num} ]  按任意键停止！  ", end="\r")
+            ready, _, _ = select.select([sys.stdin], [], [], 0.06)
             if ready:
-                sys.stdin.read(1)  # 吃掉按键
+                sys.stdin.read(1)
                 break
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
-    result = (idx % 3) + 1  # 1, 2, 3
-    console.print(" " * 50, end="\r")  # 清空行
+    # 加权随机决定最终结果
+    result = random.choices(range(1, 7), weights=probs, k=1)[0]
+    console.print(" " * 50, end="\r")
     return result
 
 
@@ -321,7 +342,8 @@ def done(extra, force, date_str, dice_mode, message):
             # 先检查今天是否已打卡，不掷骰
             pass
 
-        distance = _interactive_roll(console)
+        weights = voyage.config.get("dice", {}).get("weights", [60, 30, 10])
+        distance = _interactive_roll(console, base_weights=weights)
         desc = voyage._get_distance_description(distance)
         face = DICE_FACES[distance]
         console.print(f"🎲 {face}  掷出：[bold cyan]{desc}[/bold cyan]！航行 [bold yellow]{distance + extra}[/bold yellow] 海里")
