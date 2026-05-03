@@ -1,0 +1,21 @@
+[project]
+name = "bestman"
+version = "0.1.0"
+description = "航向新大陆 — 175天的航海健身之旅"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1",
+    "rich>=13.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+bestman = "bestman.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
