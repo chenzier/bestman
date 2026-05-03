@@ -8,22 +8,22 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from bestman.voyage import Voyage
+from bestman.core.voyage import Voyage
 
 
 @pytest.fixture
 def mock_deps():
     """Mock state、config、map engine、LLM 和日志模板。"""
     with (
-        patch("bestman.voyage.load_config") as mock_load_config,
-        patch("bestman.voyage.load_env") as mock_load_env,
-        patch("bestman.voyage.BestmanState") as mock_state_cls,
-        patch("bestman.voyage.MapEngine") as mock_map_cls,
-        patch("bestman.voyage.EventEngine") as mock_event_cls,
-        patch("bestman.voyage.LLMClient") as mock_llm_cls,
-        patch("bestman.voyage.get_log_entry") as mock_get_log,
-        patch("bestman.voyage.generate_voyage_log") as mock_gen_log,
-        patch("bestman.voyage.chat_with_coach") as mock_coach,
+        patch("bestman.core.voyage.load_config") as mock_load_config,
+        patch("bestman.core.voyage.load_env") as mock_load_env,
+        patch("bestman.core.voyage.BestmanState") as mock_state_cls,
+        patch("bestman.core.voyage.MapEngine") as mock_map_cls,
+        patch("bestman.core.voyage.EventEngine") as mock_event_cls,
+        patch("bestman.core.voyage.LLMClient") as mock_llm_cls,
+        patch("bestman.core.voyage.get_log_entry") as mock_get_log,
+        patch("bestman.core.voyage.generate_voyage_log") as mock_gen_log,
+        patch("bestman.core.voyage.chat_with_coach") as mock_coach,
     ):
         # 配置 mock — dice weights [100, 0, 0] 保证测试确定性（永远掷出 1 格）
         mock_config = {
@@ -101,7 +101,7 @@ def mock_deps():
 
         # Map engine mock
         mock_map = MagicMock()
-        mock_map.render.return_value = "MOCK_MAP_HERE"
+        mock_map.build_render_data.return_value = {"grid": [], "route": []}
         mock_map_cls.return_value = mock_map
 
         # Event engine mock
@@ -203,11 +203,10 @@ class TestRenderMap:
     """render_map() 测试。"""
 
     def test_render_delegates_to_map_engine(self, mock_deps):
-        """委托 map_engine.render()。"""
+        """委托 map_engine.build_render_data()。"""
         voyage = Voyage()
-        result = voyage.render_map()
-        mock_deps["map"].render.assert_called_once_with(0, today_advance=0, sway_offset=0.0, sway_phase=0.0)
-        assert result == "MOCK_MAP_HERE"
+        voyage.render_map()
+        mock_deps["map"].build_render_data.assert_called_once_with(0, today_advance=0, sway_offset=0.0, sway_phase=0.0)
 
 
 class TestComplete:
@@ -854,13 +853,13 @@ class TestTalk:
 class TestIsInitialized:
     """is_initialized() 测试。"""
 
-    @patch("bestman.voyage.BESTMAN_HOME")
+    @patch("bestman.core.voyage.BESTMAN_HOME")
     def test_is_initialized_true(self, mock_home):
         """BESTMAN_HOME 存在时返回 True。"""
         mock_home.is_dir.return_value = True
         assert Voyage.is_initialized() is True
 
-    @patch("bestman.voyage.BESTMAN_HOME")
+    @patch("bestman.core.voyage.BESTMAN_HOME")
     def test_is_initialized_false(self, mock_home):
         """BESTMAN_HOME 不存在时返回 False。"""
         mock_home.is_dir.return_value = False

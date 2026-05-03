@@ -12,7 +12,11 @@ dependencies = [
 ]
 
 [project.scripts]
-bestman = "bestman.cli:main"
+bestman = "bestman.ui.cli:main"
+bestman-tui = "bestman.ui.tui:run_tui"
+
+[project.optional-dependencies]
+tui = ["textual>=0.47"]
 
 [build-system]
 requires = ["hatchling"]

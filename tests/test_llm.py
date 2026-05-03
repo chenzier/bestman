@@ -15,7 +15,7 @@ class TestLLMClientInit:
 
     def test_creates_openai_client_when_key_provided(self):
         """有效 API key 时创建 OpenAI 客户端。"""
-        with patch("bestman.llm.OpenAI") as mock_openai:
+        with patch("bestman.core.llm.OpenAI") as mock_openai:
             client = LLMClient(
                 api_key="sk-real-key",
                 base_url="https://api.deepseek.com",
@@ -30,7 +30,7 @@ class TestLLMClientInit:
 
     def test_does_not_create_client_for_placeholder_key(self):
         """sk-placeholder 时不创建客户端。"""
-        with patch("bestman.llm.OpenAI") as mock_openai:
+        with patch("bestman.core.llm.OpenAI") as mock_openai:
             client = LLMClient(
                 api_key="sk-placeholder",
                 base_url="https://api.deepseek.com",
@@ -41,7 +41,7 @@ class TestLLMClientInit:
 
     def test_does_not_create_client_for_empty_key(self):
         """空 API key 时不创建客户端。"""
-        with patch("bestman.llm.OpenAI") as mock_openai:
+        with patch("bestman.core.llm.OpenAI") as mock_openai:
             client = LLMClient(
                 api_key="",
                 base_url="https://api.openai.com/v1",
@@ -62,7 +62,7 @@ class TestLLMClientChat:
 
     def test_chat_returns_content_when_available(self):
         """LLM 可用时返回内容。"""
-        with patch("bestman.llm.OpenAI") as mock_openai:
+        with patch("bestman.core.llm.OpenAI") as mock_openai:
             mock_client = mock_openai.return_value
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
@@ -80,7 +80,7 @@ class TestLLMClientChat:
 
     def test_chat_handles_api_error(self):
         """API 错误时返回 None。"""
-        with patch("bestman.llm.OpenAI") as mock_openai:
+        with patch("bestman.core.llm.OpenAI") as mock_openai:
             mock_client = mock_openai.return_value
             mock_client.chat.completions.create.side_effect = Exception("API Error")
 
@@ -94,7 +94,7 @@ class TestLLMClientChat:
 
     def test_chat_passes_temperature_and_max_tokens(self):
         """chat() 传递温度值和 max_tokens 参数。"""
-        with patch("bestman.llm.OpenAI") as mock_openai:
+        with patch("bestman.core.llm.OpenAI") as mock_openai:
             mock_client = mock_openai.return_value
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
@@ -128,7 +128,7 @@ class TestGenerateVoyageLog:
 
     def test_calls_chat_with_correct_prompt(self):
         """构建正确的 prompt 并调用 chat()。"""
-        with patch("bestman.llm.OpenAI") as mock_openai:
+        with patch("bestman.core.llm.OpenAI") as mock_openai:
             mock_inst = mock_openai.return_value
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
@@ -174,7 +174,7 @@ class TestChatWithCoach:
 
     def test_calls_chat_with_coach_prompt(self):
         """构建教练 prompt + 上下文并调用 chat()。"""
-        with patch("bestman.llm.OpenAI") as mock_openai:
+        with patch("bestman.core.llm.OpenAI") as mock_openai:
             mock_inst = mock_openai.return_value
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]

@@ -1,9 +1,14 @@
-"""bestman — 航向新大陆
+"""bestman core — 纯游戏逻辑，零终端/UI 依赖。
 
-三层架构：core（纯逻辑）→ renderers（渲染后端）→ ui（表现层）
+Provides:
+- Voyage: 游戏逻辑核心，协调 config + state + map_engine + llm
+- BestmanState: SQLite 状态管理
+- MapEngine: 2D 地图引擎（纯逻辑，不含渲染）
+- EventEngine: 随机事件引擎
+- LLMClient: OpenAI 兼容 LLM 客户端
+- Config helpers: load_config, save_config, load_plan, save_plan, etc.
 """
 
-# Re-export core classes and functions for backward compatibility
 from bestman.core.config import (  # noqa: F401
     BESTMAN_HOME,
     DEFAULT_CONFIG,
@@ -28,6 +33,6 @@ from bestman.core.llm import (  # noqa: F401
     review_summary,
     weigh_comment,
 )
-from bestman.core.map_engine import GRID_HEIGHT, GRID_WIDTH, MapEngine, get_log_entry  # noqa: F401
+from bestman.core.map_engine import GRID_WIDTH, GRID_HEIGHT, MapEngine, get_log_entry  # noqa: F401
 from bestman.core.state import BestmanState  # noqa: F401
 from bestman.core.voyage import Voyage  # noqa: F401

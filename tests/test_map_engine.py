@@ -1,6 +1,4 @@
-"""Tests for the 2D world MapEngine."""
-
-import re
+"""Tests for the 2D world MapEngine (refactored API)."""
 
 import pytest
 
@@ -40,15 +38,31 @@ def make_config(stages=None, milestones=None, width=50, height=14, theme="naval"
     }
 
 
-def strip_rich_markup(text):
-    """Strip Rich markup tags, leaving only content characters."""
-    return re.sub(r"\[/?[^\]]*\]", "", text)
+# ── helpers for inspecting grid data ──
+
+def count_cells_by_status(grid, status):
+    """Count cells in the 2D grid whose ``status`` matches."""
+    return sum(1 for row in grid for cell in row if cell["status"] == status)
 
 
-def count_char_in_grid(rendered, char):
-    """Count occurrences of a character in the rendered grid (after stripping markup)."""
-    raw = strip_rich_markup(rendered)
-    return raw.count(char)
+def count_cells_by_attr(grid, attr):
+    """Count cells in the 2D grid where a boolean attribute is True."""
+    return sum(1 for row in grid for cell in row if cell.get(attr))
+
+
+def any_cell_with_attr(grid, attr):
+    """Return True if any cell has the given boolean attribute set True."""
+    return any(cell.get(attr) for row in grid for cell in row)
+
+
+def cell_terrain_chars(grid):
+    """Return a set of all terrain_char values in the grid."""
+    return {cell["terrain_char"] for row in grid for cell in row}
+
+
+def cell_terrain_colors(grid):
+    """Return a set of all terrain_color values in the grid."""
+    return {cell["terrain_color"] for row in grid for cell in row}
 
 
 # ── route generation tests ──
@@ -60,21 +74,21 @@ class TestRouteGeneration:
     def test_route_has_175_points(self):
         """Route contains exactly 175 coordinates."""
         engine = MapEngine(make_config())
-        assert len(engine._route) == 175
+        assert len(engine.route) == 175
         assert engine.total_days == 175
 
     def test_all_points_in_bounds(self):
         """Every route point is within the grid."""
         engine = MapEngine(make_config())
-        for x, y in engine._route:
+        for x, y in engine.route:
             assert 0 <= x < engine.width, f"Point ({x},{y}) x out of bounds"
             assert 0 <= y < engine.height, f"Point ({x},{y}) y out of bounds"
 
     def test_route_starts_left_ends_right(self):
         """Route starts near left edge and ends near right edge."""
         engine = MapEngine(make_config())
-        first_x = engine._route[0][0]
-        last_x = engine._route[-1][0]
+        first_x = engine.route[0][0]
+        last_x = engine.route[-1][0]
         assert first_x <= 5, f"Route should start near left edge, got x={first_x}"
         assert last_x >= 45, f"Route should end near right edge, got x={last_x}"
 
@@ -96,8 +110,8 @@ class TestRouteGeneration:
     def test_fallback_route_when_no_stages(self):
         """When stages is empty, a fallback 175-point route is generated."""
         engine = MapEngine(make_config(stages=[]))
-        assert len(engine._route) == 175
-        for x, y in engine._route:
+        assert len(engine.route) == 175
+        for x, y in engine.route:
             assert 0 <= x < engine.width
             assert 0 <= y < engine.height
 
@@ -106,7 +120,7 @@ class TestRouteGeneration:
         engine = MapEngine(make_config(width=60, height=10))
         assert engine.width == 60
         assert engine.height == 10
-        for x, y in engine._route:
+        for x, y in engine.route:
             assert 0 <= x < 60
             assert 0 <= y < 10
 
@@ -115,158 +129,179 @@ class TestRouteGeneration:
 
 
 class TestMapRendering:
-    """Tests for the 2D grid rendering."""
+    """Tests for the 2D grid rendering via build_render_data()."""
 
-    def test_render_has_correct_line_count(self):
-        """Rendered map has exactly HEIGHT lines (one per row)."""
-        engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=0)
-        lines = rendered.split("\n")
-        assert len(lines) == GRID_HEIGHT
+    # ── helpers ──
 
-    def test_each_line_has_50_visible_chars(self):
-        """Each row has exactly 50 visible characters (Rich markup stripped)."""
+    @staticmethod
+    def _render(engine, tiles_revealed=0, **kwargs):
+        """Call build_render_data and return the grid."""
+        data = engine.build_render_data(tiles_revealed=tiles_revealed, **kwargs)
+        return data, data["grid"]
+
+    # ── tests ──
+
+    def test_render_has_correct_row_count(self):
+        """Grid has exactly HEIGHT rows."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=25)
-        for line in rendered.split("\n"):
-            raw = strip_rich_markup(line)
-            assert len(raw) == GRID_WIDTH, f"Expected {GRID_WIDTH} chars, got {len(raw)}"
+        _, grid = self._render(engine, tiles_revealed=0)
+        assert len(grid) == GRID_HEIGHT
+
+    def test_each_row_has_width_cells(self):
+        """Each row has exactly GRID_WIDTH cells."""
+        engine = MapEngine(make_config())
+        _, grid = self._render(engine, tiles_revealed=25)
+        for row in grid:
+            assert len(row) == GRID_WIDTH, f"Expected {GRID_WIDTH} cells, got {len(row)}"
 
     def test_ship_visible_at_start(self):
-        """Ship icon is present when tiles_revealed=0."""
+        """Ship flag is set when tiles_revealed=0."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=0)
-        assert "\u2693" in rendered  # ⚓
+        _, grid = self._render(engine, tiles_revealed=0)
+        assert any_cell_with_attr(grid, "has_ship")
 
     def test_ship_visible_mid_voyage(self):
-        """Ship icon is present at various points."""
+        """Ship flag is set at various voyage positions."""
         engine = MapEngine(make_config())
         for tiles in [5, 25, 50, 75, 100, 150]:
-            rendered = engine.render(tiles_revealed=tiles)
-            assert "\u2693" in rendered, f"Ship missing at tiles_revealed={tiles}"
+            _, grid = self._render(engine, tiles_revealed=tiles)
+            assert any_cell_with_attr(grid, "has_ship"), f"Ship missing at tiles_revealed={tiles}"
 
     def test_finish_flag_when_complete(self):
         """When all tiles revealed, finish flag replaces ship."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=175)
-        assert "\U0001f3c1" in rendered  # 🏁
-        # Ship icon should not be present
-        raw = strip_rich_markup(rendered)
-        assert "\u2693" not in raw
+        _, grid = self._render(engine, tiles_revealed=175)
+        assert any_cell_with_attr(grid, "has_finish")
+        # Ship flag should not be present
+        assert not any_cell_with_attr(grid, "has_ship")
 
     def test_future_route_shows_preview(self):
-        """Unwalked route tiles ahead show ∘."""
+        """Unwalked route tiles ahead have 'preview' status."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=10)
-        raw = strip_rich_markup(rendered)
-        assert "\u2218" in raw  # ∘
+        _, grid = self._render(engine, tiles_revealed=10)
+        assert count_cells_by_status(grid, "preview") > 0
 
     def test_preview_count_decreases_with_progress(self):
-        """Fewer preview tiles as ship advances."""
+        """Preview cells are visible even as ship advances."""
         engine = MapEngine(make_config())
-        early = count_char_in_grid(engine.render(tiles_revealed=0), "\u2218")
-        mid = count_char_in_grid(engine.render(tiles_revealed=80), "\u2218")
-        assert early >= 10, f"Expected >=10 preview chars at start, got {early}"
-        # Preview count should be consistent (~10 each time)
-        assert mid >= 8, f"Expected >=8 preview chars mid-voyage, got {mid}"
+        early = count_cells_by_status(
+            self._render(engine, tiles_revealed=0)[1], "preview"
+        )
+        mid = count_cells_by_status(
+            self._render(engine, tiles_revealed=80)[1], "preview"
+        )
+        assert early >= 10, f"Expected >=10 preview cells at start, got {early}"
+        assert mid >= 8, f"Expected >=8 preview cells mid-voyage, got {mid}"
 
     def test_fog_fills_rest(self):
-        """Areas not on the route show fog character."""
+        """Areas not on the route have 'fog' status."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=10)
-        raw = strip_rich_markup(rendered)
-        assert "\u2592" in raw  # ▒
+        _, grid = self._render(engine, tiles_revealed=10)
+        assert count_cells_by_status(grid, "fog") > 0
 
     def test_milestone_on_map(self):
-        """Milestone markers appear on the map."""
+        """Milestone markers appear on walked route cells."""
         config = make_config()
         engine = MapEngine(config)
-        # At tile 25, milestone "穿越迷雾之海" should be visible
-        rendered = engine.render(tiles_revealed=30)
-        raw = strip_rich_markup(rendered)
-        assert "\u2726" in raw  # ✦
+        # At tile 25 (0-based), milestone at tile 24 is behind us
+        _, grid = self._render(engine, tiles_revealed=30)
+        assert any_cell_with_attr(grid, "has_milestone")
 
     def test_milestone_in_future_shows_as_preview_marker(self):
         """Upcoming milestone within visible range shows as ✦."""
         engine = MapEngine(make_config())
         # At tile 20, milestone at tile 24 (day 25, 0-based) is ahead
-        rendered = engine.render(tiles_revealed=20)
-        raw = strip_rich_markup(rendered)
-        assert "\u2726" in raw  # ✦ should appear for upcoming milestone
+        _, grid = self._render(engine, tiles_revealed=20)
+        assert any_cell_with_attr(grid, "has_milestone")
 
     def test_no_crash_at_all_positions(self):
         """Walking through 0 to 176 should never crash."""
         engine = MapEngine(make_config())
         for tiles in range(0, 177):
-            rendered = engine.render(tiles_revealed=tiles)
-            assert rendered is not None, f"None at tiles_revealed={tiles}"
-            assert len(rendered) > 0, f"Empty at tiles_revealed={tiles}"
-            lines = rendered.split("\n")
-            assert len(lines) == GRID_HEIGHT, f"Wrong rows at tiles_revealed={tiles}"
+            data = engine.build_render_data(tiles_revealed=tiles)
+            assert data is not None, f"None at tiles_revealed={tiles}"
+            grid = data["grid"]
+            assert len(grid) == GRID_HEIGHT, f"Wrong rows at tiles_revealed={tiles}"
 
     def test_beyond_total_still_renders(self):
         """tiles_revealed > 175 still renders without error."""
         engine = MapEngine(make_config())
         for tiles in [176, 200, 1000]:
-            rendered = engine.render(tiles_revealed=tiles)
-            assert rendered is not None
-            assert len(rendered.split("\n")) == GRID_HEIGHT
+            data = engine.build_render_data(tiles_revealed=tiles)
+            assert data is not None
+            assert len(data["grid"]) == GRID_HEIGHT
 
     def test_negative_tiles_handled(self):
         """Negative tiles_revealed should not crash."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=-1)
+        data = engine.build_render_data(tiles_revealed=-1)
         # -1 should be treated like 0
-        assert rendered is not None
-        assert "\u2693" in rendered
+        assert data is not None
+        assert any_cell_with_attr(data["grid"], "has_ship")
 
-    def test_rich_markup_present(self):
-        """Output contains Rich markup tags for styling."""
+    def test_cell_data_has_colors(self):
+        """Grid cells carry terrain_color strings for use by renderers."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=25)
-        assert "[" in rendered  # Rich tags present
-        assert "]" in rendered
-        # Should have bold styling for ship
-        assert "bold yellow" in rendered
-        # Should have fog styling
-        assert "dim blue" in rendered
+        _, grid = self._render(engine, tiles_revealed=25)
+        colors = cell_terrain_colors(grid)
+        # Should have multiple distinct colors (fog + terrain + preview)
+        assert len(colors) >= 2
+        # All colors should be non-empty strings
+        assert all(isinstance(c, str) and len(c) > 0 for c in colors)
 
     def test_walked_route_shows_terrain(self):
         """Walked route tiles show region terrain characters."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=5)
-        raw = strip_rich_markup(rendered)
+        _, grid = self._render(engine, tiles_revealed=5)
+        chars = cell_terrain_chars(grid)
         # First stage is 启航, terrain char is ~
-        assert "~" in raw
+        assert "~" in chars
 
     def test_different_regions_use_different_chars(self):
         """When ship reaches different regions, terrain changes."""
         engine = MapEngine(make_config())
 
         # Stage 3 (季风带) terrain is ≈
-        rendered = engine.render(tiles_revealed=60)
-        raw = strip_rich_markup(rendered)
-        assert "\u2248" in raw  # ≈
+        _, grid = self._render(engine, tiles_revealed=60)
+        chars = cell_terrain_chars(grid)
+        assert "\u2248" in chars  # ≈
 
         # Stage 5 (赤道无风带) terrain is —
-        rendered = engine.render(tiles_revealed=110)
-        raw = strip_rich_markup(rendered)
-        assert "\u2014" in raw  # —
+        _, grid = self._render(engine, tiles_revealed=110)
+        chars = cell_terrain_chars(grid)
+        assert "\u2014" in chars  # —
 
     def test_grid_is_rectangular(self):
-        """All rows have the same width after stripping markup."""
+        """All rows have the same width."""
         engine = MapEngine(make_config())
         for tiles in [0, 25, 50, 75, 100, 125, 150, 175]:
-            rendered = engine.render(tiles_revealed=tiles)
-            widths = {len(strip_rich_markup(line)) for line in rendered.split("\n")}
+            _, grid = self._render(engine, tiles_revealed=tiles)
+            widths = {len(row) for row in grid}
             assert len(widths) == 1, f"Inconsistent widths at tiles={tiles}: {widths}"
 
     def test_full_completion_shows_flag(self):
         """When voyage is complete, finish flag is shown at the destination."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=175)
-        raw = strip_rich_markup(rendered)
-        assert "\U0001f3c1" in raw  # 🏁
+        _, grid = self._render(engine, tiles_revealed=175)
+        assert any_cell_with_attr(grid, "has_finish")
+
+    def test_build_render_data_return_keys(self):
+        """build_render_data returns all expected dict keys."""
+        engine = MapEngine(make_config())
+        data = engine.build_render_data(tiles_revealed=50, today_advance=2,
+                                        sway_offset=0.5, sway_phase=1.2)
+        expected_keys = {
+            "grid", "ship_pos", "route", "tiles_revealed", "total_days",
+            "today_advance", "milestones", "sway_offset", "sway_phase",
+            "width", "height",
+        }
+        assert set(data.keys()) == expected_keys
+        assert data["width"] == GRID_WIDTH
+        assert data["height"] == GRID_HEIGHT
+        assert data["tiles_revealed"] == 50
+        assert data["today_advance"] == 2
+        assert data["sway_offset"] == 0.5
+        assert data["sway_phase"] == 1.2
 
 
 # ── position / region query tests ──
@@ -280,20 +315,20 @@ class TestPositionAndRegion:
         engine = MapEngine(make_config())
         pos = engine.get_current_position(0)
         assert pos is not None
-        assert pos == engine._route[0]
+        assert pos == engine.route[0]
 
     def test_get_current_position_tracks_ship(self):
         """Position matches route[tiles_revealed]."""
         engine = MapEngine(make_config())
         for tiles in [0, 1, 25, 50, 100, 174]:
             pos = engine.get_current_position(tiles)
-            assert pos == engine._route[min(tiles, 174)]
+            assert pos == engine.route[min(tiles, 174)]
 
     def test_get_current_position_clamps_at_end(self):
         """Position clamps to last route point when beyond total."""
         engine = MapEngine(make_config())
         pos = engine.get_current_position(200)
-        assert pos == engine._route[-1]
+        assert pos == engine.route[-1]
 
     def test_get_region_at_stages(self):
         """get_region_at returns correct region for each stage."""
@@ -321,7 +356,7 @@ class TestPositionAndRegion:
         engine = MapEngine(make_config())
         prev_x = -1
         decreases = 0
-        for x, _ in engine._route:
+        for x, _ in engine.route:
             if x < prev_x:
                 decreases += 1
             prev_x = x
@@ -404,105 +439,116 @@ def test_get_log_entry_returns_string():
 class TestTodayAdvance:
     """Tests for today's trail highlighting (today_advance parameter)."""
 
-    def test_today_advance_adds_bright_red(self):
-        """When today_advance > 0, today's tiles get bold bright_red styling."""
+    @staticmethod
+    def _render(engine, tiles_revealed=0, **kwargs):
+        """Call build_render_data and return the data dict."""
+        return engine.build_render_data(tiles_revealed=tiles_revealed, **kwargs)
+
+    def test_today_advance_adds_trail_cells(self):
+        """When today_advance > 0, some cells have is_today_trail=True."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=10, today_advance=3)
-        assert "bold bright_red" in rendered
+        data = self._render(engine, tiles_revealed=10, today_advance=3)
+        assert any_cell_with_attr(data["grid"], "is_today_trail")
 
     def test_today_advance_zero_no_highlight(self):
-        """When today_advance=0, no bright_red styling appears."""
+        """When today_advance=0, no cells have is_today_trail=True."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=10, today_advance=0)
-        assert "bright_red" not in rendered
+        data = self._render(engine, tiles_revealed=10, today_advance=0)
+        assert not any_cell_with_attr(data["grid"], "is_today_trail")
 
     def test_today_advance_single_tile(self):
-        """Single tile advance still shows bright_red."""
+        """Single tile advance still has trail cells."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=10, today_advance=1)
-        assert "bold bright_red" in rendered
+        data = self._render(engine, tiles_revealed=10, today_advance=1)
+        assert any_cell_with_attr(data["grid"], "is_today_trail")
 
     def test_today_advance_mid_voyage(self):
         """Today highlight works at various voyage positions."""
         engine = MapEngine(make_config())
         for tiles in [5, 50, 120]:
-            rendered = engine.render(tiles_revealed=tiles, today_advance=2)
-            assert "bold bright_red" in rendered, f"Missing highlight at tiles={tiles}"
+            data = self._render(engine, tiles_revealed=tiles, today_advance=2)
+            assert any_cell_with_attr(data["grid"], "is_today_trail"), (
+                f"Missing trail cells at tiles={tiles}"
+            )
 
     def test_today_advance_does_not_break_grid(self):
         """All rows still have correct width with today_advance."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=50, today_advance=3)
-        widths = {len(strip_rich_markup(line)) for line in rendered.split("\n")}
+        data = self._render(engine, tiles_revealed=50, today_advance=3)
+        widths = {len(row) for row in data["grid"]}
         assert len(widths) == 1, f"Inconsistent widths: {widths}"
 
     def test_today_advance_does_not_crash(self):
         """Various today_advance values never crash."""
         engine = MapEngine(make_config())
         for advance in [0, 1, 2, 3, 10, 50, 175]:
-            rendered = engine.render(tiles_revealed=25, today_advance=advance)
-            assert rendered is not None, f"None at today_advance={advance}"
-            assert len(rendered.split("\n")) == GRID_HEIGHT
+            data = self._render(engine, tiles_revealed=25, today_advance=advance)
+            assert data is not None, f"None at today_advance={advance}"
+            assert len(data["grid"]) == GRID_HEIGHT
 
-    def test_today_advance_near_wake_still_bold(self):
-        """Tiles in NEAR_WAKE but not today's still get bold terrain color."""
+    def test_today_advance_near_wake_cells_present(self):
+        """Tiles in NEAR_WAKE range get 'wake' status."""
         engine = MapEngine(make_config())
-        # At tiles=10, today_advance=1: only tile 9 is "today"
-        # Tiles 5-8 are "near wake" with bold terrain color
-        rendered = engine.render(tiles_revealed=10, today_advance=1)
-        # Should have both bold bright_red and bold terrain colors
-        assert "bold" in rendered
+        # At tiles=10, today_advance=1: tile 9 is "today", tiles 5-8 are "wake"
+        data = self._render(engine, tiles_revealed=10, today_advance=1)
+        assert count_cells_by_status(data["grid"], "wake") > 0
 
     def test_today_advance_fade_beyond_today(self):
-        """Tiles beyond today_advance use normal dim/bold terrain styling."""
+        """Tiles beyond today_advance use 'explored' status."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=20, today_advance=3)
-        # Old tiles (far behind) should use 'dim' style
-        assert "dim" in rendered
+        data = self._render(engine, tiles_revealed=20, today_advance=3)
+        # Old tiles (far behind) should have "explored" status
+        assert count_cells_by_status(data["grid"], "explored") > 0
 
 
 # ── sway tests ──
 
 
 class TestSway:
-    """Tests for the ship sway animation offset (sway_offset parameter)."""
+    """Tests for the ship sway animation offset (sway_offset / sway_phase)."""
+
+    @staticmethod
+    def _render(engine, tiles_revealed=0, **kwargs):
+        """Call build_render_data and return the data dict."""
+        return engine.build_render_data(tiles_revealed=tiles_revealed, **kwargs)
 
     def test_sway_zero_no_effect(self):
-        """sway_offset=0.0 produces same output as no sway_offset."""
+        """sway_offset=0.0 produces same grid as no sway_offset."""
         engine = MapEngine(make_config())
-        no_sway = engine.render(tiles_revealed=25)
-        zero_sway = engine.render(tiles_revealed=25, sway_offset=0.0)
+        no_sway = self._render(engine, tiles_revealed=25)["grid"]
+        zero_sway = self._render(engine, tiles_revealed=25, sway_offset=0.0)["grid"]
         assert no_sway == zero_sway
 
     def test_sway_keeps_grid_width(self):
         """All rows maintain correct width after sway."""
         engine = MapEngine(make_config())
         for offset in [0.5, 1.0, 1.5, 2.0]:
-            rendered = engine.render(tiles_revealed=25, sway_offset=offset)
-            widths = {len(strip_rich_markup(line)) for line in rendered.split("\n")}
+            data = self._render(engine, tiles_revealed=25, sway_offset=offset)
+            widths = {len(row) for row in data["grid"]}
             assert len(widths) == 1, f"Inconsistent widths at offset={offset}: {widths}"
 
     def test_sway_does_not_crash(self):
         """Various sway_offset values never crash."""
         engine = MapEngine(make_config())
         for offset in [-2.0, -1.0, 0.0, 0.5, 1.0, 2.0, 3.0]:
-            rendered = engine.render(tiles_revealed=25, sway_offset=offset)
-            assert rendered is not None, f"None at sway_offset={offset}"
-            assert len(rendered.split("\n")) == GRID_HEIGHT
+            data = self._render(engine, tiles_revealed=25, sway_offset=offset)
+            assert data is not None, f"None at sway_offset={offset}"
+            assert len(data["grid"]) == GRID_HEIGHT
 
     def test_sway_with_today_advance(self):
         """Sway and today_advance work together without crashing."""
         engine = MapEngine(make_config())
-        rendered = engine.render(tiles_revealed=25, today_advance=3, sway_offset=1.5)
-        assert rendered is not None
-        assert len(rendered.split("\n")) == GRID_HEIGHT
-        widths = {len(strip_rich_markup(line)) for line in rendered.split("\n")}
+        data = self._render(engine, tiles_revealed=25, today_advance=3,
+                            sway_offset=1.5)
+        assert data is not None
+        assert len(data["grid"]) == GRID_HEIGHT
+        widths = {len(row) for row in data["grid"]}
         assert len(widths) == 1
 
     def test_sway_positive_offset_shifts_some_rows(self):
-        """Positive sway_offset causes visible row shifting (fog at edges)."""
+        """Positive sway_offset causes visible row shifting."""
         engine = MapEngine(make_config())
-        no_sway = engine.render(tiles_revealed=25, sway_offset=0.0)
-        with_sway = engine.render(tiles_revealed=25, sway_offset=2.0)
-        # Rows should differ because sway adds fog at edges
+        no_sway = self._render(engine, tiles_revealed=25, sway_offset=0.0)["grid"]
+        with_sway = self._render(engine, tiles_revealed=25, sway_offset=2.0)["grid"]
+        # Grid rows should differ because sway shifts rows left/right
         assert no_sway != with_sway

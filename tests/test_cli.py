@@ -22,8 +22,8 @@ def runner():
 def mock_voyage():
     """Mock Voyage 类。"""
     with (
-        patch("bestman.cli.kitty_available", return_value=False),
-        patch("bestman.cli.Voyage") as mock_cls,
+        patch("bestman.ui._views.kitty_available", return_value=False),
+        patch("bestman.core.voyage.Voyage") as mock_cls,
     ):
         mock_inst = MagicMock()
         mock_cls.return_value = mock_inst
@@ -105,7 +105,7 @@ def mock_voyage():
 class TestInitCommand:
     """bestman init 测试。"""
 
-    @patch("bestman.cli.ensure_home")
+    @patch("bestman.ui.cli.ensure_home")
     def test_init_output(self, mock_ensure_home, runner):
         """init 调用 ensure_home，输出包含 已就绪。"""
         result = runner.invoke(main, ["init"])
@@ -114,7 +114,7 @@ class TestInitCommand:
         assert "已就绪" in result.output
         assert "175 天" in result.output
 
-    @patch("bestman.cli.ensure_home")
+    @patch("bestman.ui.cli.ensure_home")
     def test_init_shows_instructions(self, mock_ensure_home, runner):
         """init 输出包含数据目录和下一步提示。"""
         result = runner.invoke(main, ["init"])
@@ -125,7 +125,7 @@ class TestInitCommand:
 class TestDashboard:
     """bestman 仪表盘（默认命令）测试。"""
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_dashboard_renders(self, mock_home, mock_voyage, runner):
         """仪表盘渲染 Rule + 分段地图 + 状态行。"""
         mock_home.is_dir.return_value = True
@@ -141,7 +141,7 @@ class TestDashboard:
         assert "DAY 1/175" in result.output
         assert "启航" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_dashboard_skip_hint_when_tokens(self, mock_home, mock_voyage, runner):
         """有令牌且今日未完成时显示 skip 提示。"""
         mock_home.is_dir.return_value = True
@@ -153,7 +153,7 @@ class TestDashboard:
         assert "bestman skip" in result.output
         assert "3 枚可用" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_dashboard_not_initialized(self, mock_home, runner):
         """未初始化时提示 init。"""
         mock_home.is_dir.return_value = False
@@ -164,7 +164,7 @@ class TestDashboard:
         assert "尚未初始化" in result.output
         assert "bestman init" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_dashboard_today_done(self, mock_home, mock_voyage, runner):
         """今日已完成时显示绿色提示。"""
         mock_home.is_dir.return_value = True
@@ -175,7 +175,7 @@ class TestDashboard:
         assert result.exit_code == 0
         assert "今日任务已完成" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_dashboard_shows_streak_and_tokens(self, mock_home, mock_voyage, runner):
         """仪表盘显示连击和令牌。"""
         mock_home.is_dir.return_value = True
@@ -188,7 +188,7 @@ class TestDashboard:
         assert "5 天连击" in result.output
         assert "2 枚令牌" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_dashboard_shows_logs(self, mock_home, mock_voyage, runner):
         """仪表盘显示最近日志。"""
         mock_home.is_dir.return_value = True
@@ -205,7 +205,7 @@ class TestDashboard:
 class TestDashboardCoins:
     """仪表盘金币显示测试。"""
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_dashboard_shows_coins(self, mock_home, mock_voyage, runner):
         """仪表盘显示金币数。"""
         mock_home.is_dir.return_value = True
@@ -216,7 +216,7 @@ class TestDashboardCoins:
         assert result.exit_code == 0
         assert "230 金币" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_dashboard_shows_zero_coins(self, mock_home, mock_voyage, runner):
         """金币为 0 时也显示。"""
         mock_home.is_dir.return_value = True
@@ -230,7 +230,7 @@ class TestDashboardCoins:
 class TestDoneCommand:
     """bestman done 测试。"""
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_done_success(self, mock_home, mock_voyage, runner):
         """done 成功打卡。"""
         mock_home.is_dir.return_value = True
@@ -252,7 +252,7 @@ class TestDoneCommand:
         assert "掷出" in result.output
         assert "晨光洒在甲板上" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_done_duplicate(self, mock_home, mock_voyage, runner):
         """同一天重复 done 失败。"""
         mock_home.is_dir.return_value = True
@@ -270,7 +270,7 @@ class TestDoneCommand:
         assert result.exit_code == 0
         assert "今日已经打卡" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_done_not_initialized(self, mock_home, runner):
         """未 init 时 done 提示 init。"""
         mock_home.is_dir.return_value = False
@@ -280,7 +280,7 @@ class TestDoneCommand:
         assert result.exit_code == 1
         assert "尚未初始化" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_done_with_milestone(self, mock_home, mock_voyage, runner):
         """done 触发里程碑。"""
         mock_home.is_dir.return_value = True
@@ -301,7 +301,7 @@ class TestDoneCommand:
         assert "里程碑达成" in result.output
         assert "穿越迷雾之海" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_done_shows_coins(self, mock_home, mock_voyage, runner):
         """done 后显示金币获取。"""
         mock_home.is_dir.return_value = True
@@ -328,7 +328,7 @@ class TestDoneCommand:
         assert "每日打卡" in result.output
         assert "暴风加成" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_done_shows_treasure(self, mock_home, mock_voyage, runner):
         """done 后显示发现的宝藏。"""
         mock_home.is_dir.return_value = True
@@ -362,7 +362,7 @@ class TestDoneCommand:
         assert "+50 金币" in result.output
         assert "古代沉船" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_done_with_manual_message(self, mock_home, mock_voyage, runner):
         """done -m 传入手动日志，跳过 LLM。"""
         mock_home.is_dir.return_value = True
@@ -385,7 +385,7 @@ class TestDoneCommand:
         call_kwargs = mock_voyage["inst"].complete.call_args.kwargs
         assert call_kwargs["message"] == "室内俯卧撑 50×3，汗流浃背"
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_done_voyage_complete(self, mock_home, mock_voyage, runner):
         """完成全部航程时显示完成面板。"""
         mock_home.is_dir.return_value = True
@@ -418,7 +418,7 @@ class TestDoneCommand:
 class TestSkipCommand:
     """bestman skip 测试。"""
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_skip_success(self, mock_home, mock_voyage, runner):
         """skip 成功消耗令牌。"""
         mock_home.is_dir.return_value = True
@@ -429,7 +429,7 @@ class TestSkipCommand:
         assert "已使用一枚跳过令牌" in result.output
         assert "船队在避风港暂歇" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_skip_no_tokens(self, mock_home, mock_voyage, runner):
         """无令牌时 skip 显示提示。"""
         mock_home.is_dir.return_value = True
@@ -446,7 +446,7 @@ class TestSkipCommand:
         assert result.exit_code == 0
         assert "没有可用令牌" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_skip_not_initialized(self, mock_home, runner):
         """未 init 时 skip 提示 init。"""
         mock_home.is_dir.return_value = False
@@ -460,7 +460,7 @@ class TestSkipCommand:
 class TestLogCommand:
     """bestman log 测试。"""
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_log_default(self, mock_home, mock_voyage, runner):
         """log 默认显示最近 10 条。"""
         mock_home.is_dir.return_value = True
@@ -476,7 +476,7 @@ class TestLogCommand:
         assert "第一条日志" in result.output
         assert "第二条日志" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_log_with_count(self, mock_home, mock_voyage, runner):
         """log -n 5 显示最近 5 条。"""
         mock_home.is_dir.return_value = True
@@ -486,7 +486,7 @@ class TestLogCommand:
         assert result.exit_code == 0
         mock_voyage["inst"].get_logs.assert_called_with(5)
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_log_empty(self, mock_home, mock_voyage, runner):
         """无日志时显示提示。"""
         mock_home.is_dir.return_value = True
@@ -497,7 +497,7 @@ class TestLogCommand:
         assert result.exit_code == 0
         assert "尚无航海日志" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_log_not_initialized(self, mock_home, runner):
         """未 init 时 log 提示 init。"""
         mock_home.is_dir.return_value = False
@@ -548,7 +548,7 @@ class TestHelp:
 class TestTalkCommand:
     """bestman talk 测试。"""
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_talk_single_message(self, mock_home, mock_voyage, runner):
         """talk -m 单次对话。"""
         mock_home.is_dir.return_value = True
@@ -564,7 +564,7 @@ class TestTalkCommand:
         assert "今天海面很平静" in result.output
         mock_voyage["inst"].talk.assert_called_once_with("今天感觉不错")
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_talk_llm_not_available(self, mock_home, mock_voyage, runner):
         """LLM 未配置时提示配置。"""
         mock_home.is_dir.return_value = True
@@ -577,7 +577,7 @@ class TestTalkCommand:
         assert "OPENAI_API_KEY" in result.output
         mock_voyage["inst"].talk.assert_not_called()
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_talk_not_initialized(self, mock_home, runner):
         """未 init 时 talk 提示 init。"""
         mock_home.is_dir.return_value = False
@@ -587,7 +587,7 @@ class TestTalkCommand:
         assert result.exit_code == 1
         assert "尚未初始化" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_talk_error_handling(self, mock_home, mock_voyage, runner):
         """talk 失败时显示错误消息。"""
         mock_home.is_dir.return_value = True
@@ -606,8 +606,8 @@ class TestTalkCommand:
 class TestConfigCommand:
     """bestman config 测试。"""
 
-    @patch("bestman.cli.BESTMAN_HOME")
-    @patch("bestman.cli.load_config")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.load_config")
     def test_config_dice_mode_show(self, mock_load, mock_home, runner):
         """config dice-mode 无参数时显示当前模式。"""
         mock_home.is_dir.return_value = True
@@ -619,8 +619,8 @@ class TestConfigCommand:
         assert "确定性" in result.output
         assert "deterministic" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
-    @patch("bestman.cli.load_config")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.load_config")
     def test_config_dice_mode_show_interactive(self, mock_load, mock_home, runner):
         """config dice-mode 显示互动模式。"""
         mock_home.is_dir.return_value = True
@@ -632,9 +632,9 @@ class TestConfigCommand:
         assert "互动" in result.output
         assert "interactive" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
-    @patch("bestman.cli.save_config")
-    @patch("bestman.cli.load_config")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.save_config")
+    @patch("bestman.ui.cli.load_config")
     def test_config_dice_mode_set_interactive(self, mock_load, mock_save, mock_home, runner):
         """config dice-mode interactive 切换模式并显示成功。"""
         mock_home.is_dir.return_value = True
@@ -646,7 +646,7 @@ class TestConfigCommand:
         mock_save.assert_called_once()
         assert "切换" in result.output
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_config_not_initialized(self, mock_home, runner):
         """未 init 时 config 提示 init。"""
         mock_home.is_dir.return_value = False
@@ -660,8 +660,8 @@ class TestConfigCommand:
 class TestDoneInteractiveMode:
     """bestman done --mode interactive 测试。"""
 
-    @patch("bestman.cli.BESTMAN_HOME")
-    @patch("bestman.cli._interactive_roll")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli._interactive_roll")
     def test_done_interactive_mode(self, mock_roll, mock_home, mock_voyage, runner):
         """互动模式下调用 _interactive_roll 并将结果传给 complete()。"""
         mock_home.is_dir.return_value = True
@@ -675,8 +675,8 @@ class TestDoneInteractiveMode:
         call_kwargs = mock_voyage["inst"].complete.call_args.kwargs
         assert call_kwargs["distance"] == 2
 
-    @patch("bestman.cli.BESTMAN_HOME")
-    @patch("bestman.cli._interactive_roll")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli._interactive_roll")
     def test_done_interactive_from_config(self, mock_roll, mock_home, mock_voyage, runner):
         """配置为 interactive 时即使不传 --mode 也用互动模式。"""
         mock_home.is_dir.return_value = True
@@ -688,7 +688,7 @@ class TestDoneInteractiveMode:
         assert result.exit_code == 0
         mock_roll.assert_called_once()
 
-    @patch("bestman.cli.BESTMAN_HOME")
+    @patch("bestman.ui.cli.BESTMAN_HOME")
     def test_done_deterministic_mode_explicit(self, mock_home, mock_voyage, runner):
         """--mode deterministic 覆盖配置，用确定性模式。"""
         mock_home.is_dir.return_value = True

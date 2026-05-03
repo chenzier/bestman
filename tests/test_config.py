@@ -22,7 +22,7 @@ class TestEnsureHome:
         bestman_dir = tmp_path / ".bestman"
         assert not bestman_dir.exists()
 
-        with patch.object(config, "BESTMAN_HOME", bestman_dir):
+        with patch("bestman.core.config.BESTMAN_HOME", bestman_dir):
             config.ensure_home()
 
         assert bestman_dir.exists()
@@ -34,7 +34,7 @@ class TestEnsureHome:
         yaml_path = bestman_dir / "config.yaml"
         assert not yaml_path.exists()
 
-        with patch.object(config, "BESTMAN_HOME", bestman_dir):
+        with patch("bestman.core.config.BESTMAN_HOME", bestman_dir):
             config.ensure_home()
 
         assert yaml_path.exists()
@@ -48,7 +48,7 @@ class TestEnsureHome:
         yaml_path = bestman_dir / "config.yaml"
         yaml_path.write_text("voyage:\n  total_days: 365\n")
 
-        with patch.object(config, "BESTMAN_HOME", bestman_dir):
+        with patch("bestman.core.config.BESTMAN_HOME", bestman_dir):
             config.ensure_home()
 
         data = yaml.safe_load(yaml_path.read_text())
@@ -60,7 +60,7 @@ class TestLoadConfig:
         bestman_dir = tmp_path / ".bestman"
         bestman_dir.mkdir()
 
-        with patch.object(config, "BESTMAN_HOME", bestman_dir):
+        with patch("bestman.core.config.BESTMAN_HOME", bestman_dir):
             cfg = config.load_config()
 
         assert cfg["voyage"]["total_days"] == 175
@@ -72,7 +72,7 @@ class TestLoadConfig:
         yaml_path = bestman_dir / "config.yaml"
         yaml_path.write_text("voyage:\n  total_days: 30\n")
 
-        with patch.object(config, "BESTMAN_HOME", bestman_dir):
+        with patch("bestman.core.config.BESTMAN_HOME", bestman_dir):
             cfg = config.load_config()
 
         assert cfg["voyage"]["total_days"] == 30
@@ -84,7 +84,7 @@ class TestLoadConfig:
         yaml_path = bestman_dir / "config.yaml"
         yaml_path.write_text("profile:\n  name: TestUser\n")
 
-        with patch.object(config, "BESTMAN_HOME", bestman_dir):
+        with patch("bestman.core.config.BESTMAN_HOME", bestman_dir):
             cfg = config.load_config()
 
         assert cfg["profile"]["name"] == "TestUser"
