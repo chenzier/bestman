@@ -1,10 +1,11 @@
 """bestman CLI — Click 命令行入口。
 
-四个命令：
+五个命令：
 - bestman init     初始化航行
 - bestman          仪表盘（默认）
 - bestman done     完成今日任务
 - bestman log      查看航海日志
+- bestman talk     与 AI 导航员对话
 """
 
 import click
@@ -102,6 +103,7 @@ def _dashboard():
     else:
         console.print("[dim]明天再来！运行 [bold green]bestman done[/bold green] 继续航行[/dim]")
     console.print("[dim]运行 [bold green]bestman log[/bold green] 查看航海日志[/dim]")
+    console.print("[dim]运行 [bold green]bestman talk[/bold green] 与导航员对话[/dim]")
 
 
 @main.command()
@@ -126,11 +128,15 @@ def done():
     """完成今日任务，推进一格。
 
     每天只能完成一次。完成后会生成航海日志并检查里程碑。
+    LLM 可用时生成独特叙事，不可用时退回模板。
     """
     _require_init()
 
     voyage = Voyage()
-    result = voyage.complete()
+
+    # 仿 hermes 的 Rich spinner 加载态
+    with console.status("[cyan]正在撰写今日航海日志...[/cyan]"):
+        result = voyage.complete()
 
     if not result["success"]:
         console.print(f"[yellow]{result['error']}[/yellow]")
@@ -139,6 +145,8 @@ def done():
 
     console.print()
     console.print(f"[bold green]✓ {result['message']}[/bold green]")
+    if result.get("llm_used"):
+        console.print("[dim]（日志由 AI 导航员生成）[/dim]")
     console.print()
 
     # 日志
@@ -211,3 +219,79 @@ def log(count):
             console.print(f"[cyan]{entry['text']}[/cyan]")
 
     console.print()
+
+
+@main.command()
+@click.option("-m", "--message", default=None, help="单次对话消息（不进入循环模式）")
+def talk(message):
+    """与 AI 导航员对话。
+
+    仿 hermes cli.py 的交互循环模式（轻量版：用 console.input 代替 prompt_toolkit）。
+
+    无参数时进入对话循环模式（输入 quit/exit/back 退出）。
+    使用 -m 参数进行单次对话。
+
+    \b
+    示例：
+        bestman talk                  # 进入对话循环
+        bestman talk -m "今天好累"     # 单次对话
+    """
+    _require_init()
+
+    voyage = Voyage()
+
+    if not voyage.llm.available:
+        console.print("[red]LLM 未配置[/red]")
+        console.print(
+            "[dim]请在 [bold]~/.bestman/.env[/bold] 中设置 OPENAI_API_KEY[/dim]"
+        )
+        return
+
+    # 单次对话模式
+    if message is not None:
+        with console.status("[cyan]导航员正在思考...[/cyan]"):
+            result = voyage.talk(message)
+        if result["success"]:
+            console.print()
+            console.print(f"[cyan]导航员：{result['response']}[/cyan]")
+        else:
+            console.print(f"[yellow]{result['response']}[/yellow]")
+        return
+
+    # 对话循环模式
+    console.print()
+    console.print(Rule("[bold cyan]与导航员对话[/bold cyan]"))
+    console.print()
+    console.print("[dim]输入 [bold]quit[/bold]/[bold]exit[/bold]/[bold]back[/bold] 结束对话[/dim]")
+    console.print()
+
+    # 开场白
+    with console.status("[cyan]导航员正在思考...[/cyan]"):
+        intro = voyage.talk("你好，我是水手。今天航行怎么样？")
+    if intro["success"]:
+        console.print(f"[cyan]导航员：{intro['response']}[/cyan]")
+    else:
+        console.print(f"[yellow]{intro['response']}[/yellow]")
+        return
+    console.print()
+
+    while True:
+        try:
+            msg = console.input("[yellow]你> [/yellow]").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            break
+
+        if not msg:
+            continue
+        if msg.lower() in ("quit", "exit", "back"):
+            console.print("[dim]导航员：风向正好，随时回来。[/dim]")
+            break
+
+        with console.status("[cyan]导航员正在思考...[/cyan]"):
+            result = voyage.talk(msg)
+        if result["success"]:
+            console.print(f"[cyan]导航员：{result['response']}[/cyan]")
+        else:
+            console.print(f"[yellow]{result['response']}[/yellow]")
+        console.print()

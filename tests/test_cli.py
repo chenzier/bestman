@@ -40,6 +40,29 @@ def mock_voyage():
         mock_inst.get_logs.return_value = []
         mock_inst.is_initialized.return_value = True
 
+        # LLM mock
+        mock_llm = MagicMock()
+        mock_llm.available = True
+        mock_inst.llm = mock_llm
+
+        # complete 默认返回
+        mock_inst.complete.return_value = {
+            "success": True,
+            "message": "完成！推进了 1 格",
+            "tiles_revealed": 1,
+            "log_entry": "晨光洒在甲板上。",
+            "milestone": None,
+            "error": None,
+            "llm_used": False,
+        }
+
+        # talk 默认返回
+        mock_inst.talk.return_value = {
+            "success": True,
+            "response": "慢慢来，水手。今天海面很平静。",
+            "error": None,
+        }
+
         yield {"cls": mock_cls, "inst": mock_inst}
 
 
@@ -277,6 +300,7 @@ class TestHelp:
         assert "init" in result.output
         assert "done" in result.output
         assert "log" in result.output
+        assert "talk" in result.output
 
     def test_init_help(self, runner):
         """bestman init --help。"""
@@ -293,3 +317,67 @@ class TestHelp:
         """bestman log --help。"""
         result = runner.invoke(main, ["log", "--help"])
         assert result.exit_code == 0
+
+    def test_talk_help(self, runner):
+        """bestman talk --help。"""
+        result = runner.invoke(main, ["talk", "--help"])
+        assert result.exit_code == 0
+        assert "导航员" in result.output
+
+
+class TestTalkCommand:
+    """bestman talk 测试。"""
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_talk_single_message(self, mock_home, mock_voyage, runner):
+        """talk -m 单次对话。"""
+        mock_home.is_dir.return_value = True
+        mock_voyage["inst"].talk.return_value = {
+            "success": True,
+            "response": "今天海面很平静，适合训练。",
+            "error": None,
+        }
+
+        result = runner.invoke(main, ["talk", "-m", "今天感觉不错"])
+
+        assert result.exit_code == 0
+        assert "今天海面很平静" in result.output
+        mock_voyage["inst"].talk.assert_called_once_with("今天感觉不错")
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_talk_llm_not_available(self, mock_home, mock_voyage, runner):
+        """LLM 未配置时提示配置。"""
+        mock_home.is_dir.return_value = True
+        mock_voyage["inst"].llm.available = False
+
+        result = runner.invoke(main, ["talk", "-m", "hello"])
+
+        assert result.exit_code == 0
+        assert "LLM 未配置" in result.output
+        assert "OPENAI_API_KEY" in result.output
+        mock_voyage["inst"].talk.assert_not_called()
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_talk_not_initialized(self, mock_home, runner):
+        """未 init 时 talk 提示 init。"""
+        mock_home.is_dir.return_value = False
+
+        result = runner.invoke(main, ["talk"])
+
+        assert result.exit_code == 1
+        assert "尚未初始化" in result.output
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_talk_error_handling(self, mock_home, mock_voyage, runner):
+        """talk 失败时显示错误消息。"""
+        mock_home.is_dir.return_value = True
+        mock_voyage["inst"].talk.return_value = {
+            "success": False,
+            "response": "导航员暂时无法回应。",
+            "error": "LLM 请求失败",
+        }
+
+        result = runner.invoke(main, ["talk", "-m", "今天好累"])
+
+        assert result.exit_code == 0
+        assert "导航员暂时无法回应" in result.output
