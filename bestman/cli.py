@@ -14,6 +14,7 @@
 - bestman plan edit     编辑计划文件
 """
 
+import math
 import random
 import select
 import sys
@@ -385,15 +386,19 @@ def done(extra, force, date_str, dice_mode, message):
         fps = sway_config.get("fps", 8)
         sway_duration = sway_config.get("duration", 0.6)
         total_frames = max(1, int(fps * sway_duration))
+        # Show first swayed frame for longer before animation starts
+        time.sleep(0.3)
         for frame in range(total_frames):
             progress = frame / total_frames
             decay = 1.0 - progress
             current_offset = amplitude * decay
+            phase = frame * (4 * math.pi / total_frames)  # 2 wave cycles
             if frame > 0:
                 console.clear()
             console.print(Rule(rule_text, style="dim cyan"))
             console.print(voyage.render_map(
-                today_advance=total_advance, sway_offset=current_offset))
+                today_advance=total_advance, sway_offset=current_offset,
+                sway_phase=phase))
             time.sleep(1.0 / fps)
         console.clear()
     console.print(Rule(rule_text, style="dim cyan"))

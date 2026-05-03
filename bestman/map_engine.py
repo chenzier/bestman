@@ -275,7 +275,8 @@ class MapEngine:
 
     # ── rendering ─────────────────────────────────────────────────
 
-    def render(self, tiles_revealed=0, today_advance=0, sway_offset=0.0):
+    def render(self, tiles_revealed=0, today_advance=0, sway_offset=0.0,
+               sway_phase=0.0):
         """Render the full 2D map grid.
 
         Args:
@@ -286,6 +287,8 @@ class MapEngine:
             sway_offset: Sway amplitude multiplier for ship sway animation.
                          Typically ranges from amplitude down to 0.0.
                          0.0 means no sway.
+            sway_phase: Phase shift for the sin wave, changing per frame
+                        during animation to create a rolling wave effect.
 
         Returns:
             Rich markup string with the full grid.
@@ -362,7 +365,7 @@ class MapEngine:
         # Apply sway offset to each row (ship sway animation)
         if sway_offset != 0.0:
             for y in range(self.height):
-                offset = int(sway_offset * math.sin(y * 0.8))
+                offset = int(sway_offset * math.sin(y * 0.8 + sway_phase))
                 if offset == 0:
                     continue
                 row = grid[y]

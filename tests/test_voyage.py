@@ -206,7 +206,7 @@ class TestRenderMap:
         """委托 map_engine.render()。"""
         voyage = Voyage()
         result = voyage.render_map()
-        mock_deps["map"].render.assert_called_once_with(0, today_advance=0, sway_offset=0.0)
+        mock_deps["map"].render.assert_called_once_with(0, today_advance=0, sway_offset=0.0, sway_phase=0.0)
         assert result == "MOCK_MAP_HERE"
 
 

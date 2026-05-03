@@ -118,9 +118,9 @@ DEFAULT_CONFIG = {
         "fade_steps": 3,
         "sway": {
             "enabled": True,
-            "amplitude": 2,
-            "fps": 8,
-            "duration": 0.6,
+            "amplitude": 3,
+            "fps": 15,
+            "duration": 1.0,
         },
     },
     "events": [
