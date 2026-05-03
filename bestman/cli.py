@@ -21,6 +21,7 @@ import sys
 import termios
 import time
 import tty
+from datetime import date, timedelta
 
 import click
 from rich.console import Console
@@ -913,6 +914,7 @@ def talk(message):
         if result["success"]:
             console.print()
             console.print(f"[cyan]导航员：{result['response']}[/cyan]")
+            _handle_plan_override(voyage, result)
         else:
             console.print(f"[yellow]{result['response']}[/yellow]")
         return
@@ -951,9 +953,47 @@ def talk(message):
             result = voyage.talk(msg)
         if result["success"]:
             console.print(f"[cyan]导航员：{result['response']}[/cyan]")
+            _handle_plan_override(voyage, result)
         else:
             console.print(f"[yellow]{result['response']}[/yellow]")
         console.print()
+
+
+def _handle_plan_override(voyage, talk_result):
+    """处理 talk 返回的 plan_override。"""
+    override = talk_result.get("plan_override")
+    if not override:
+        return
+
+    field = override.get("field", "daily_task")
+    value = override.get("value", "")
+    duration_days = override.get("duration_days", 3)
+
+    if not value:
+        return
+
+    today = date.today()
+    expires = (today + timedelta(days=duration_days)).isoformat()
+
+    # 获取原始值
+    original_value = voyage.config["voyage"]["default_daily_task"]
+    plan = load_plan()
+    if plan:
+        stage_info = voyage._get_plan_stage_info()
+        if stage_info:
+            original_value = stage_info.get("daily_task", original_value)
+
+    voyage.state.add_override(
+        created_date=today.isoformat(),
+        field=field,
+        original_value=original_value,
+        override_value=value,
+        expires_date=expires,
+        reason="导航员根据水手情况临时调整",
+    )
+
+    console.print()
+    console.print(f"[dim]（计划已更新：{expires} 自动恢复）[/dim]")
 
 
 @main.command()

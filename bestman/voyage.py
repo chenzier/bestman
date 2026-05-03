@@ -8,8 +8,10 @@
 """
 
 import hashlib
+import json
 import os
 import random
+import re
 from datetime import date, timedelta
 
 from bestman.config import BESTMAN_HOME, load_config, get_current_stage, load_env, save_plan
@@ -456,6 +458,7 @@ class Voyage:
             dict: {
                 "success": bool,
                 "response": str,
+                "plan_override": dict | None,
                 "error": str | None,
             }
         """
@@ -463,6 +466,7 @@ class Voyage:
             return {
                 "success": False,
                 "response": "导航员正在休息。请先配置 LLM（~/.bestman/.env）。",
+                "plan_override": None,
                 "error": "LLM 未配置",
             }
 
@@ -481,12 +485,26 @@ class Voyage:
             return {
                 "success": False,
                 "response": "导航员暂时无法回应。海风太大，信号不好...",
+                "plan_override": None,
                 "error": "LLM 请求失败",
             }
+
+        # 解析 plan_override JSON（可能在回复末尾）
+        plan_override = None
+        json_match = re.search(r'\{[^}]*"action"\s*:\s*"override"[^}]*\}', reply)
+        if json_match:
+            try:
+                override_data = json.loads(json_match.group(0))
+                if override_data.get("action") == "override":
+                    plan_override = override_data
+                    reply = reply[:json_match.start()].rstrip()
+            except json.JSONDecodeError:
+                pass
 
         return {
             "success": True,
             "response": reply,
+            "plan_override": plan_override,
             "error": None,
         }
 
