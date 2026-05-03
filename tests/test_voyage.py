@@ -94,6 +94,9 @@ def mock_deps():
         mock_state.use_skip_token.return_value = False
         mock_state.get_total_coins.return_value = 0
         mock_state.get_treasures.return_value = []
+        mock_state.get_active_overrides.return_value = []
+        mock_state.get_latest_weight.return_value = None
+        mock_state.get_weight_history.return_value = []
         mock_state_cls.return_value = mock_state
 
         # Map engine mock

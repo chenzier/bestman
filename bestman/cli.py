@@ -937,3 +937,136 @@ def talk(message):
         else:
             console.print(f"[yellow]{result['response']}[/yellow]")
         console.print()
+
+
+@main.command()
+def review():
+    """查看本周航行回顾。
+
+    聚合本周的打卡、航行距离、金币数据，导航员给出一句总结。
+    """
+    _require_init()
+
+    voyage = Voyage()
+    with console.status("[cyan]导航员正在总结本周航行...[/cyan]"):
+        result = voyage.review()
+
+    console.print()
+    console.print(
+        f"══════════ 第 {result['week_number']} 周回顾 ═══════════"
+    )
+    console.print(
+        f"打卡：[bold green]{result['check_ins']}/{result['days_in_week']}[/bold green]"
+        f" {'✓' if result['check_ins'] == result['days_in_week'] else ''}"
+        f"  跳过：{result['skips']}  连击：[bold yellow]{result['streak']} 天[/bold yellow]"
+    )
+    console.print(
+        f"总航行：[bold cyan]{result['total_tiles']} 海里[/bold cyan]"
+        f"（均 [bold cyan]{result['avg_tiles']:.1f}[/bold cyan]/天）"
+    )
+    console.print(
+        f"最远：[bold yellow]{result['max_tiles']} 海里[/bold yellow]"
+        f"  最短：{result['min_tiles']} 海里"
+    )
+    console.print(f"金币：[bold yellow]+{result['coins']}[/bold yellow]")
+
+    if result["summary"]:
+        console.print()
+        console.print(f"[cyan]导航员：{result['summary']}[/cyan]")
+
+    console.print()
+
+
+@main.command()
+@click.argument("weight", type=float)
+@click.option("-d", "--date", "date_str", default=None, help="指定日期 YYYY-MM-DD")
+@click.option("-n", "--note", default="", help="备注")
+def weigh(weight, date_str, note):
+    """记录体重。
+
+    \b
+    示例：
+        bestman weigh 128.5           # 记录今日体重
+        bestman weigh 128.5 -n "空腹"  # 带备注
+    """
+    _require_init()
+
+    voyage = Voyage()
+
+    if not voyage.llm.available:
+        # No LLM, just record without comment
+        result = voyage.record_weight(weight, date_str=date_str, note=note)
+    else:
+        with console.status("[cyan]导航员正在分析体重趋势...[/cyan]"):
+            result = voyage.record_weight(weight, date_str=date_str, note=note)
+
+    console.print()
+    current = result["current_weight"]
+    if result["distance_to_target"] is not None:
+        target_str = f"，距目标 {result['distance_to_target']:.1f} kg"
+    else:
+        target_str = ""
+
+    if result["delta"] is not None:
+        delta = result["delta"]
+        arrow = "↓" if delta < 0 else ("↑" if delta > 0 else "→")
+        delta_str = f"距上次 {arrow} {abs(delta):.1f} kg"
+    else:
+        delta_str = "首次记录"
+
+    console.print(f"⚖  [bold cyan]{current} kg[/bold cyan]（{delta_str}{target_str}）")
+    console.print(f"[cyan]导航员：{result['comment']}[/cyan]")
+    console.print()
+
+
+@main.command()
+def progress():
+    """查看体重趋势。
+
+    显示最近 4 周的体重变化趋势和预计达标日期。
+    """
+    _require_init()
+
+    voyage = Voyage()
+    result = voyage.get_weight_progress()
+
+    console.print()
+    console.print("══════════ 趋势 ═══════════")
+
+    entries = result["entries"]
+    if not entries:
+        console.print()
+        console.print("[dim]尚无体重记录。运行 [bold green]bestman weigh <体重>[/bold green] 开始记录。[/dim]")
+        console.print()
+        return
+
+    # 体重柱子图
+    if entries:
+        weights = [e["weight_kg"] for e in entries]
+        max_w = max(weights)
+        min_w = min(weights) if len(weights) > 1 else max_w - 5
+        weight_range = max(max_w - min_w, 5)  # 至少 5 kg 范围避免扁平
+
+        console.print("体重（最近 4 次）：")
+        for e in entries:
+            w = e["weight_kg"]
+            bar_fill = int(20 * (w - min_w) / weight_range) if weight_range > 0 else 10
+            bar_fill = max(1, min(bar_fill, 20))
+            bar = "█" * bar_fill + "░" * (20 - bar_fill)
+            console.print(f"  {e['date']}  [bold cyan]{bar}[/bold cyan] {w:.1f}")
+        console.print()
+
+    # 趋势统计
+    if result["weekly_avg_loss"] is not None:
+        avg_loss = result["weekly_avg_loss"]
+        arrow = "↓" if avg_loss < 0 else "↑"
+        console.print(f"📉 周均 {arrow} {abs(avg_loss):.1f} kg", end="")
+
+        if result["estimated_completion_date"] and result["estimated_completion_date"] != "已达标":
+            console.print(f" · 预计达标 [bold yellow]{result['estimated_completion_date']}[/bold yellow]")
+        elif result["estimated_completion_date"] == "已达标":
+            console.print(" · [bold green]已达标！[/bold green]")
+        else:
+            console.print()
+
+    console.print()

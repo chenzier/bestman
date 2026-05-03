@@ -10,13 +10,13 @@
 import hashlib
 import os
 import random
-from datetime import date
+from datetime import date, timedelta
 
 from bestman.config import BESTMAN_HOME, load_config, get_current_stage, load_env, save_plan
 from bestman.state import BestmanState
 from bestman.map_engine import MapEngine, get_log_entry
 from bestman.events import EventEngine
-from bestman.llm import LLMClient, generate_voyage_log, chat_with_coach, generate_plan
+from bestman.llm import LLMClient, generate_voyage_log, chat_with_coach, generate_plan, review_summary, weigh_comment
 
 
 class Voyage:
@@ -149,26 +149,40 @@ class Voyage:
         }
 
     def get_daily_task(self) -> str:
-        """获取今日任务描述。
+        """获取今日任务描述，优先使用计划覆盖。
 
         Returns:
             str: 任务描述
         """
+        # 检查是否有活跃的 daily_task 覆盖
+        overrides = self.state.get_active_overrides(field="daily_task")
+        if overrides:
+            return overrides[0]["override_value"]
+
+        # 如果有 plan.yaml，优先用当前 stage 的任务
+        plan = self.config.get("plan")
+        if plan:
+            stage_info = self._get_plan_stage_info()
+            if stage_info:
+                return stage_info.get("daily_task", self.config["voyage"]["default_daily_task"])
+
         return self.config["voyage"]["default_daily_task"]
 
-    def render_map(self, today_advance=0, sway_offset=0.0) -> str:
+    def render_map(self, today_advance=0, sway_offset=0.0, sway_phase=0.0) -> str:
         """渲染像素地图。
 
         Args:
             today_advance: 今日推进格数，用于高亮今天的足迹。
             sway_offset: 摇摆幅度，用于船体摇晃动画。
+            sway_phase: 波浪相位偏移，每帧不同产生滚动波浪效果。
 
         Returns:
             str: Rich markup 地图字符串
         """
         return self.map_engine.render(self.state.get_tiles_revealed(),
                                       today_advance=today_advance,
-                                      sway_offset=sway_offset)
+                                      sway_offset=sway_offset,
+                                      sway_phase=sway_phase)
 
     def _roll_distance(self, day_seed):
         """掷骰子，决定今日航行距离。
@@ -526,6 +540,240 @@ class Voyage:
             "tiles_revealed": self.state.get_tiles_revealed(),
             "log_entry": log_entry,
             "error": None,
+        }
+
+    def _get_plan_stage_info(self):
+        """从 plan 配置中获取当前阶段信息。
+
+        Returns:
+            dict | None: 当前阶段的 stage 信息，无计划时返回 None
+        """
+        plan = self.config.get("plan")
+        if not plan:
+            return None
+        stages = plan.get("stages", [])
+        current_day = self.state.get_tiles_revealed() + 1
+        for stage in stages:
+            start, end = stage.get("days", [0, 0])
+            if start <= current_day <= end:
+                return stage
+        return None
+
+    def review(self) -> dict:
+        """生成本周回顾（数据聚合 + LLM 总结）。
+
+        Returns:
+            dict: {
+                "success": bool,
+                "week_number": int,
+                "start_date": str, "end_date": str,
+                "check_ins": int, "days_in_week": int,
+                "skips": int, "streak": int,
+                "total_tiles": int, "avg_tiles": float,
+                "max_tiles": int, "min_tiles": int,
+                "coins": int,
+                "summary": str | None,
+                "error": str | None,
+            }
+        """
+
+        today = date.today()
+        # 从 voyage start 计算周数（默认用 tiles_revealed 推算）
+        start_date_str = self.config.get("voyage", {}).get("start_date")
+        if start_date_str:
+            voyage_start = date.fromisoformat(start_date_str)
+        else:
+            # fallback: 用 tiles_revealed 反推，大约一天一 tile
+            days_in = self.state.get_tiles_revealed()
+            voyage_start = today - timedelta(days=days_in)
+
+        # 计算当前周是第几周（从 voyage_start 起算，周日到周六）
+        days_from_start = (today - voyage_start).days
+        week_number = (days_from_start // 7) + 1
+
+        # 本周起止日期：从上周日起
+        weekday = today.weekday()  # 0=Monday ... 6=Sunday
+        days_back = (weekday + 1) % 7
+        week_start = today - timedelta(days=days_back)
+        if week_start > today:
+            week_start = today
+        # 本周结束就是今天
+        week_end = today
+
+        # Ensure we don't go before voyage start
+        if week_start < voyage_start:
+            week_start = voyage_start
+
+        stats = self.state.get_weekly_stats(week_start.isoformat(), week_end.isoformat())
+        days_in_week = min(7, (week_end - week_start).days + 1)
+
+        avg_tiles = stats["total_tiles"] / max(stats["check_ins"], 1)
+
+        streak = self.state.get_streak()
+
+        # LLM 总结
+        context = {
+            "week_number": week_number,
+            "check_ins": stats["check_ins"],
+            "days_in_week": days_in_week,
+            "skips": stats["skips"],
+            "streak": streak,
+            "total_tiles": stats["total_tiles"],
+            "avg_tiles": avg_tiles,
+            "max_tiles": stats["max_tiles"],
+            "min_tiles": stats["min_tiles"],
+            "coins": stats["coins"],
+        }
+        summary = review_summary(self.llm, context)
+
+        return {
+            "success": True,
+            "week_number": week_number,
+            "start_date": week_start.isoformat(),
+            "end_date": week_end.isoformat(),
+            "check_ins": stats["check_ins"],
+            "days_in_week": days_in_week,
+            "skips": stats["skips"],
+            "streak": streak,
+            "total_tiles": stats["total_tiles"],
+            "avg_tiles": avg_tiles,
+            "max_tiles": stats["max_tiles"],
+            "min_tiles": stats["min_tiles"],
+            "coins": stats["coins"],
+            "summary": summary,
+            "error": None,
+        }
+
+    def record_weight(self, weight_kg, date_str=None, note="") -> dict:
+        """记录体重，返回变化和导航员评论。
+
+        Args:
+            weight_kg: 体重（公斤）
+            date_str: 日期，默认今天
+            note: 备注
+
+        Returns:
+            dict: {
+                "success": bool,
+                "current_weight": float,
+                "previous_weight": float | None,
+                "delta": float | None,
+                "target_weight": float | None,
+                "distance_to_target": float | None,
+                "comment": str,
+                "error": str | None,
+            }
+        """
+        if date_str is None:
+            date_str = date.today().isoformat()
+
+        # 获取上次体重
+        prev = self.state.get_latest_weight()
+        prev_weight = prev["weight_kg"] if prev else None
+
+        # 获取目标体重（优先 plan，其次 config）
+        target_weight = None
+        plan = self.config.get("plan")
+        if plan and plan.get("profile", {}).get("target_weight_kg"):
+            target_weight = float(plan["profile"]["target_weight_kg"])
+
+        # 记录
+        self.state.record_weight(date_str, weight_kg, note)
+
+        # 计算变化
+        delta = None
+        if prev_weight is not None:
+            delta = weight_kg - prev_weight
+
+        distance_to_target = None
+        if target_weight is not None:
+            distance_to_target = weight_kg - target_weight
+
+        # 趋势描述
+        if delta is not None:
+            if delta < -0.5:
+                trend = "下降趋势"
+            elif delta > 0.5:
+                trend = "上升趋势"
+            else:
+                trend = "平稳"
+        else:
+            trend = "首次记录"
+
+        # LLM 评论
+        comment = weigh_comment(self.llm, weight_kg, prev_weight, target_weight, trend)
+        if comment is None:
+            # Fallback 评论
+            if delta is not None and delta < 0:
+                comment = f"趋势在下行线，减了{abs(delta):.1f}公斤。保持节奏。"
+            elif delta is not None and delta > 0:
+                comment = "体重有所波动，风向会变的。"
+            else:
+                comment = "记录下来就是胜利。定期称重比体重数字本身更重要。"
+
+        return {
+            "success": True,
+            "current_weight": weight_kg,
+            "previous_weight": prev_weight,
+            "delta": delta,
+            "target_weight": target_weight,
+            "distance_to_target": distance_to_target,
+            "comment": comment,
+            "error": None,
+        }
+
+    def get_weight_progress(self) -> dict:
+        """获取体重趋势数据。
+
+        Returns:
+            dict: {
+                "entries": list[dict],  # 最近 4 次周体重记录
+                "weekly_avg_loss": float | None,
+                "estimated_completion_date": str | None,
+                "target_weight": float | None,
+            }
+        """
+        history = self.state.get_weight_history()
+        if not history:
+            return {
+                "entries": [],
+                "weekly_avg_loss": None,
+                "estimated_completion_date": None,
+                "target_weight": None,
+            }
+
+        # 取最近 4 条，翻转时间序
+        recent = list(reversed(history[-4:]))
+
+        # 周均变化（每周假设一条）
+        weekly_avg_loss = None
+        if len(recent) >= 2:
+            total_delta = recent[-1]["weight_kg"] - recent[0]["weight_kg"]
+            weeks = len(recent) - 1
+            weekly_avg_loss = total_delta / max(weeks, 1)
+
+        # 预计达标日期
+        target_weight = None
+        plan = self.config.get("plan")
+        if plan and plan.get("profile", {}).get("target_weight_kg"):
+            target_weight = float(plan["profile"]["target_weight_kg"])
+
+        estimated_completion_date = None
+        if (target_weight is not None and weekly_avg_loss is not None
+                and weekly_avg_loss < 0 and recent):
+            remaining = recent[-1]["weight_kg"] - target_weight
+            if remaining > 0:
+                weeks_needed = int(remaining / abs(weekly_avg_loss))
+                completion = date.today() + timedelta(weeks=weeks_needed)
+                estimated_completion_date = completion.isoformat()
+            else:
+                estimated_completion_date = "已达标"
+
+        return {
+            "entries": recent,
+            "weekly_avg_loss": weekly_avg_loss,
+            "estimated_completion_date": estimated_completion_date,
+            "target_weight": target_weight,
         }
 
     def get_logs(self, limit=10) -> list[dict]:
