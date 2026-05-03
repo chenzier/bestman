@@ -177,5 +177,18 @@ class BestmanState:
         )
         return [{"date": row[0], "text": row[1]} for row in cursor.fetchall()]
 
+    def delete_day(self, day):
+        """删除指定日期的所有记录（仅供 --force 测试使用）。"""
+        self.conn.execute("DELETE FROM days WHERE date = ?", (day,))
+        self.conn.execute("DELETE FROM voyage_logs WHERE date = ?", (day,))
+        self.conn.commit()
+
+    def reset_all(self):
+        """清空所有数据（仅供测试使用）。"""
+        self.conn.execute("DELETE FROM days")
+        self.conn.execute("DELETE FROM voyage_logs")
+        self.conn.execute("DELETE FROM skip_tokens")
+        self.conn.commit()
+
     def close(self):
         self.conn.close()

@@ -287,9 +287,11 @@ def init():
 
 @main.command()
 @click.option("-e", "--extra", type=int, default=0, help="手动超额推进格数")
+@click.option("-f", "--force", is_flag=True, help="强制重新打卡（覆盖当日记录，仅测试用）")
+@click.option("-d", "--date", "date_str", default=None, help="指定日期 YYYY-MM-DD（测试用）")
 @click.option("--mode", "dice_mode", type=click.Choice(["deterministic", "interactive"]),
               default=None, help="骰子模式（覆盖配置）")
-def done(extra, dice_mode):
+def done(extra, force, date_str, dice_mode):
     """完成今日任务，掷骰子推进 1-3 格。
 
     每天只能完成一次。完成后会生成航海日志并检查里程碑。
@@ -322,11 +324,11 @@ def done(extra, dice_mode):
         console.print(f"🎲 {face}  掷出：[bold cyan]{desc}[/bold cyan]！航行 [bold yellow]{distance + extra}[/bold yellow] 海里")
 
         with console.status("[cyan]导航员正在撰写航海日志...[/cyan]"):
-            result = voyage.complete(extra_tiles=extra, distance=distance)
+            result = voyage.complete(date_str=date_str, extra_tiles=extra, force=force, distance=distance)
     else:
         # 确定性模式（当前流程）
         with console.status("[cyan]导航员正在撰写航海日志...[/cyan]"):
-            result = voyage.complete(extra_tiles=extra)
+            result = voyage.complete(date_str=date_str, extra_tiles=extra, force=force)
 
     if not result["success"]:
         console.print(f"[yellow]{result['error']}[/yellow]")
