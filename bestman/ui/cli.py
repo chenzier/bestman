@@ -723,20 +723,6 @@ def progress():
     render_progress(console, result)
 
 
-@main.command()
-def tui():
-    """启动 Textual 全屏终端界面。
-
-    在支持 Kitty 图形协议的终端（Ghostty/Kitty/iTerm2/WezTerm）中
-    显示 Canvas PNG 地图；其他终端回退到 ASCII Rich 地图。
-    """
-    _require_init()
-
-    from bestman.ui.tui import BestmanApp
-    app = BestmanApp()
-    app.run()
-
-
 # ── vessel 载具管理 ──────────────────────────────────────────────
 
 @main.group()
