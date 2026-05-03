@@ -386,21 +386,33 @@ def done(extra, force, date_str, dice_mode, message):
         fps = sway_config.get("fps", 8)
         sway_duration = sway_config.get("duration", 0.6)
         total_frames = max(1, int(fps * sway_duration))
-        # Show first swayed frame for longer before animation starts
+        map_lines = voyage.map_engine.height + 1  # grid rows + Rule
+
+        # First swayed frame — normal print, then pause
+        console.print(Rule(rule_text, style="dim cyan"))
+        console.print(voyage.render_map(
+            today_advance=total_advance,
+            sway_offset=amplitude, sway_phase=0))
         time.sleep(0.3)
-        for frame in range(total_frames):
+
+        for frame in range(1, total_frames):
             progress = frame / total_frames
-            decay = 1.0 - progress
-            current_offset = amplitude * decay
-            phase = frame * (4 * math.pi / total_frames)  # 2 wave cycles
-            if frame > 0:
-                console.clear()
+            current_offset = amplitude * (1.0 - progress)
+            phase = frame * (4 * math.pi / total_frames)
+
+            # Move cursor up, clear rest of screen, redraw
+            sys.stdout.write(f"\033[{map_lines}A\033[J")
+            sys.stdout.flush()
             console.print(Rule(rule_text, style="dim cyan"))
             console.print(voyage.render_map(
-                today_advance=total_advance, sway_offset=current_offset,
-                sway_phase=phase))
+                today_advance=total_advance,
+                sway_offset=current_offset, sway_phase=phase))
             time.sleep(1.0 / fps)
-        console.clear()
+
+        # Move up, clear, then final static frame below
+        sys.stdout.write(f"\033[{map_lines}A\033[J")
+        sys.stdout.flush()
+
     console.print(Rule(rule_text, style="dim cyan"))
     console.print(voyage.render_map(today_advance=total_advance))
     console.print()
