@@ -111,6 +111,17 @@ DEFAULT_CONFIG = {
             "probability": 0.08,
         },
     },
+    "today_trail": {
+        "style": "custom",
+        "color": "bright_red",
+        "fade_steps": 3,
+        "sway": {
+            "enabled": True,
+            "amplitude": 2,
+            "fps": 8,
+            "duration": 0.6,
+        },
+    },
     "events": [
         {
             "id": "tailwind",

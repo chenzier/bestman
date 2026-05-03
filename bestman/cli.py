@@ -360,20 +360,53 @@ def done(extra, force, date_str, dice_mode, message):
         console.print("[dim]明天再来吧！[/dim]")
         return
 
+    # Compute today's advance for map highlighting
+    dice = result.get("dice") or {}
+    total_advance = dice.get("distance", 0) + dice.get("extra_tiles", 0)
+
     if mode != "interactive":
         # 掷骰子动画——用户参与的核心体验（仅确定性模式播放动画）
-        dice = result["dice"]
         _roll_dice_animation(dice["distance"], dice["description"], dice["extra_tiles"])
+    console.print()
+
+    # 今日航程数字确认
+    if total_advance > 0:
+        console.print(f"[bold cyan]📍 今日航程: +{total_advance} 海里[/bold cyan]")
     console.print()
 
     if result.get("llm_used"):
         console.print("[dim]（日志由 AI 导航员生成）[/dim]")
     console.print()
 
-    # 日志
+    # 地图 + 船体摇摆动画
     tiles = result["tiles_revealed"]
     status = voyage.get_status()
+    total = status["total_days"]
     region = status.get("region", status["stage"]["name"])
+    rule_text = f"⚓ 第 {tiles} 天 · {region}"
+
+    sway_config = voyage.config.get("today_trail", {}).get("sway", {})
+    if sway_config.get("enabled", True) and total_advance > 0:
+        amplitude = sway_config.get("amplitude", 2)
+        fps = sway_config.get("fps", 8)
+        sway_duration = sway_config.get("duration", 0.6)
+        total_frames = max(1, int(fps * sway_duration))
+        for frame in range(total_frames):
+            progress = frame / total_frames
+            decay = 1.0 - progress
+            current_offset = amplitude * decay
+            if frame > 0:
+                console.clear()
+            console.print(Rule(rule_text, style="dim cyan"))
+            console.print(voyage.render_map(
+                today_advance=total_advance, sway_offset=current_offset))
+            time.sleep(1.0 / fps)
+        console.clear()
+    console.print(Rule(rule_text, style="dim cyan"))
+    console.print(voyage.render_map(today_advance=total_advance))
+    console.print()
+
+    # 日志
     console.print(f"Day {tiles} · [bold yellow]{region}[/bold yellow]")
     console.print(f"[cyan]{result['log_entry']}[/cyan]")
     console.print()
@@ -415,14 +448,6 @@ def done(extra, force, date_str, dice_mode, message):
         elif evt["type"] == "challenge":
             console.print(f"[yellow]💪 {evt['message']}[/]")
         console.print()
-
-    # 地图更新
-    tiles = result["tiles_revealed"]
-    total = status["total_days"]
-    rule_text = f"⚓ 第 {tiles} 天 · {region}"
-    console.print(Rule(rule_text, style="dim cyan"))
-    console.print(voyage.render_map())
-    console.print()
 
     if result["tiles_revealed"] >= status["total_days"]:
         total = status["total_days"]
