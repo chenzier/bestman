@@ -5,7 +5,7 @@
 - bestman          仪表盘（默认）
 - bestman done     完成今日任务
 - bestman skip     使用跳过令牌
-- bestman plan     查看航行计划
+- bestman map      查看航行地图概览
 - bestman log      查看航海日志
 - bestman talk     与 AI 导航员对话
 - bestman reset    重置所有数据
@@ -212,15 +212,15 @@ def _dashboard():
     console.print("[dim]运行 [bold green]bestman talk[/bold green] 与导航员对话[/dim]")
 
 
-def _render_plan_view(voyage):
-    """渲染航行计划概览：全部 7 个阶段、里程碑与进度。"""
+def _render_map_view(voyage):
+    """渲染航行地图概览：全部阶段、里程碑与进度。"""
     status = voyage.get_status()
     tiles = status["tiles_revealed"]
     current_day = status["current_day"]
 
     # 头
     console.print()
-    console.print("[bold cyan]⚓ 航行计划 — 175 天航向新大陆[/bold cyan]")
+    console.print("[bold cyan]⚓ 航行地图 — 175 天航向新大陆[/bold cyan]")
     coins = status.get("coins", 0)
     streak = status.get("streak", 0)
     coins_part = f" · [bold yellow]💰 {coins} 金币[/bold yellow]" if coins > 0 else ""
@@ -275,20 +275,20 @@ def _render_plan_view(voyage):
             console.print(f"    {milestone_text}")
 
     console.print()
-    console.print("[dim]计划源自 bestman init 时配置的航程。[/dim]")
+    console.print("[dim]地图源自 bestman init 时配置的航程。[/dim]")
     console.print()
 
 
 @main.command()
-def plan():
-    """查看航行计划（所有阶段与里程碑）。
+def map():
+    """查看航行地图概览（所有阶段与里程碑）。
 
-    显示全部 7 个阶段的日程、进度条与里程碑，
+    显示全部阶段的日程、进度条与里程碑，
     清晰标记当前所在阶段。
     """
     _require_init()
     voyage = Voyage()
-    _render_plan_view(voyage)
+    _render_map_view(voyage)
 
 
 @main.command()
