@@ -62,6 +62,8 @@ class Voyage:
                 "completed_days": int,
                 "streak": int,
                 "skip_tokens": int,
+                "coins": int,
+                "treasures": list[dict],
             }
         """
         tiles_revealed = self.state.get_tiles_revealed()
@@ -80,6 +82,8 @@ class Voyage:
             "completed_days": self.state.get_completed_days(),
             "streak": self.state.get_streak(),
             "skip_tokens": self.state.get_available_skip_tokens(),
+            "coins": self.state.get_total_coins(),
+            "treasures": self.state.get_treasures(),
         }
 
     def get_daily_task(self) -> str:
@@ -133,7 +137,7 @@ class Voyage:
     def complete(self, date_str=None, extra_tiles=0) -> dict:
         """完成今日任务，掷骰子推进。
 
-        原子操作：检查 → 掷骰 → 记录 → LLM 日志（fallback 模板） → 里程碑。
+        原子操作：检查 → 掷骰 → 金币计算 → 记录 → LLM 日志（fallback 模板） → 里程碑 → 事件 → 宝藏记录。
 
         Args:
             date_str: 日期字符串 (YYYY-MM-DD)，默认今天
@@ -150,6 +154,8 @@ class Voyage:
                 "error": str | None,       # 错误信息（如果失败）
                 "llm_used": bool,          # 是否使用了 LLM 生成日志
                 "dice": dict | None,       # 掷骰结果
+                "coins": dict | None,      # 金币获取详情
+                "treasures": list | None,  # 发现的宝藏列表
             }
         """
         if date_str is None:
@@ -167,6 +173,8 @@ class Voyage:
                 "error": "今日已经打卡",
                 "llm_used": False,
                 "dice": None,
+                "coins": None,
+                "treasures": None,
             }
 
         # 掷骰子 + 手动超额
@@ -174,8 +182,61 @@ class Voyage:
         distance, description = self._roll_distance(date_str)
         total_advance = distance + extra_tiles
 
-        # 记录
-        self.state.record_day(date_str, completed=total_advance, extra=0)
+        # ── 金币与宝藏 ──
+        coins_config = self.config.get("coins", {})
+        coins_breakdown = {}
+        discovered_treasures = []
+
+        # 每日完成
+        daily_coins = coins_config.get("daily_complete", 10)
+        coins_breakdown["每日打卡"] = daily_coins
+
+        # 骰子 3 格奖励
+        if distance == 3:
+            dice_bonus = coins_config.get("dice_3", 5)
+            coins_breakdown["暴风加成"] = dice_bonus
+
+        # 手动超额
+        if extra_tiles > 0:
+            extra_coins = coins_config.get("extra_per_tile", 5) * extra_tiles
+            coins_breakdown["额外推进"] = extra_coins
+
+        # 显式宝藏检测（基于掷骰推进，不含 bonus 事件）
+        treasures_config = self.config.get("treasures", {})
+        new_tiles_from_advance = old_tiles + total_advance
+        for treasure in treasures_config.get("explicit", []):
+            pos = treasure["position"]
+            if old_tiles < pos <= new_tiles_from_advance:
+                discovered_treasures.append({
+                    "name": treasure["name"],
+                    "type": "explicit",
+                    "coins": treasure["coins"],
+                    "message": treasure["message"],
+                })
+
+        # 隐式宝藏检测（确定性随机，基于日期种子）
+        implicit_config = treasures_config.get("implicit", {})
+        if implicit_config:
+            seed = int(hashlib.md5(str(date_str + "_treasure_imp").encode()).hexdigest()[:8], 16)
+            rng = random.Random(seed)
+            if rng.random() < implicit_config.get("probability", 0.08):
+                pool = implicit_config.get("pool", [])
+                if pool:
+                    implicit_treasure = rng.choice(pool)
+                    discovered_treasures.append({
+                        "name": implicit_treasure["name"],
+                        "type": "implicit",
+                        "coins": implicit_treasure["coins"],
+                        "message": implicit_treasure["message"],
+                    })
+
+        # 汇总当前已确定金币（不含里程碑/连击，这两项待后续计算）
+        pre_coins = sum(coins_breakdown.values())
+        for t in discovered_treasures:
+            pre_coins += t["coins"]
+
+        # 记录（先写入基础金币，里程碑和连击在后处理中更新）
+        self.state.record_day(date_str, completed=total_advance, extra=0, coins_earned=pre_coins)
 
         # 获取新状态
         tiles_revealed = self.state.get_tiles_revealed()
@@ -211,12 +272,46 @@ class Voyage:
             if event["type"] == "bonus_tile":
                 self.state.record_day(date_str + "_bonus", completed=0, extra=1)
                 tiles_revealed += 1
+                # 检查 bonus tile 是否跨过更多里程碑
+                crossed_after = [m_name for m_day, m_name in milestones.items()
+                                 if old_tiles < m_day <= tiles_revealed]
+                if crossed_after != crossed:
+                    crossed = crossed_after
+                    milestone = " | ".join(crossed) if crossed else None
             self.state.save_log(date_str, event["message"], event_type="event")
 
         # 检查连击奖励：连击 7 天发放跳过令牌
         streak = self.state.get_streak(date_str)
         if streak == 7:
             self.state.add_skip_token(date_str)
+
+        # ── 最终金币汇总（里程碑 + 连击）──
+        if crossed:
+            milestone_coins = coins_config.get("milestone", 100) * len(crossed)
+            coins_breakdown["里程碑"] = milestone_coins
+        else:
+            milestone_coins = 0
+
+        streak_coins = 0
+        if streak == 7:
+            streak_coins = coins_config.get("streak_7", 25)
+            coins_breakdown["连击7天"] = streak_coins
+        elif streak == 30:
+            streak_coins = coins_config.get("streak_30", 50)
+            coins_breakdown["连击30天"] = streak_coins
+
+        final_coins = pre_coins + milestone_coins + streak_coins
+
+        # 持久化宝藏
+        for t in discovered_treasures:
+            self.state.discover_treasure(t["name"], t["type"], t["coins"], date_str)
+            treasure_coins_key = f'💎 {t["name"]}'
+            if treasure_coins_key not in coins_breakdown:
+                coins_breakdown[treasure_coins_key] = t["coins"]
+            self.state.save_log(date_str, t["message"], event_type="treasure_found")
+
+        # 重新记录（写入最终金币数）
+        self.state.record_day(date_str, completed=total_advance, extra=0, coins_earned=final_coins)
 
         return {
             "success": True,
@@ -232,6 +327,11 @@ class Voyage:
                 "description": description,
                 "extra_tiles": extra_tiles,
             },
+            "coins": {
+                "total": final_coins,
+                "breakdown": coins_breakdown,
+            },
+            "treasures": discovered_treasures,
         }
 
     def talk(self, user_message) -> dict:

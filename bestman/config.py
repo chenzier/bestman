@@ -40,6 +40,72 @@ DEFAULT_CONFIG = {
             3: "暴风助力，航行三格！",
         },
     },
+    "coins": {
+        "daily_complete": 10,
+        "dice_3": 5,
+        "extra_per_tile": 5,
+        "streak_7": 25,
+        "streak_30": 50,
+        "milestone": 100,
+    },
+    "treasures": {
+        "explicit": [
+            {
+                "name": "沉船宝藏",
+                "position": 32,
+                "coins": 50,
+                "message": "你发现了一艘古代沉船，舱室里还有完好的金币！",
+            },
+            {
+                "name": "海妖巢穴",
+                "position": 67,
+                "coins": 80,
+                "message": "海妖已被其他航海者驱赶，巢穴里留下了闪亮的金币。",
+            },
+            {
+                "name": "漂流瓶",
+                "position": 110,
+                "coins": 30,
+                "message": "捡到一个漂流瓶，瓶中信写道：'继续前进，新大陆不远了。' 附带30枚金币。",
+            },
+            {
+                "name": "海盗藏宝图",
+                "position": 145,
+                "coins": 100,
+                "message": "在礁石缝隙里发现了一张泛黄的海盗藏宝图，宝箱里有100枚金币！",
+            },
+        ],
+        "implicit": {
+            "pool": [
+                {
+                    "name": "海豚赠礼",
+                    "coins": 20,
+                    "message": "一群海豚绕着船游了三圈，其中一只吐出一枚闪亮的金币到甲板上！",
+                },
+                {
+                    "name": "美人鱼之歌",
+                    "coins": 15,
+                    "message": "夜晚听到美人鱼的歌声。第二天在船舷上发现了一小堆金币。",
+                },
+                {
+                    "name": "浮木宝箱",
+                    "coins": 40,
+                    "message": "一块浮木漂过，上面绑着一个锈迹斑斑的小宝箱。",
+                },
+                {
+                    "name": "鹦鹉金币",
+                    "coins": 10,
+                    "message": "一只鹦鹉落在桅杆上，嘴里叼着一枚金币。它放下金币后飞走了。",
+                },
+                {
+                    "name": "星尘",
+                    "coins": 25,
+                    "message": "一颗流星坠入海面附近的礁石，溅起的浪花中闪烁着金币的光芒。",
+                },
+            ],
+            "probability": 0.08,
+        },
+    },
     "events": [
         {
             "id": "tailwind",

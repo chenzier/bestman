@@ -36,6 +36,8 @@ def mock_voyage():
             "completed_days": 0,
             "streak": 0,
             "skip_tokens": 0,
+            "coins": 0,
+            "treasures": [],
         }
         mock_inst.get_daily_task.return_value = "死虫式 3×10 + 静蹲 2×30秒"
         mock_inst.render_map.return_value = "MOCK_MAP_HERE"
@@ -63,6 +65,11 @@ def mock_voyage():
             "milestone": None,
             "error": None,
             "llm_used": False,
+            "coins": {
+                "total": 10,
+                "breakdown": {"每日打卡": 10},
+            },
+            "treasures": [],
         }
 
         # talk 默认返回
@@ -175,6 +182,31 @@ class TestDashboard:
         assert "测试日志文本" in result.output
 
 
+class TestDashboardCoins:
+    """仪表盘金币显示测试。"""
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_dashboard_shows_coins(self, mock_home, mock_voyage, runner):
+        """仪表盘显示金币数。"""
+        mock_home.is_dir.return_value = True
+        mock_voyage["inst"].get_status.return_value["coins"] = 230
+
+        result = runner.invoke(main)
+
+        assert result.exit_code == 0
+        assert "230 金币" in result.output
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_dashboard_shows_zero_coins(self, mock_home, mock_voyage, runner):
+        """金币为 0 时也显示。"""
+        mock_home.is_dir.return_value = True
+
+        result = runner.invoke(main)
+
+        assert result.exit_code == 0
+        assert "0 金币" in result.output
+
+
 class TestDoneCommand:
     """bestman done 测试。"""
 
@@ -244,6 +276,65 @@ class TestDoneCommand:
         assert result.exit_code == 0
         assert "里程碑达成" in result.output
         assert "穿越迷雾之海" in result.output
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_done_shows_coins(self, mock_home, mock_voyage, runner):
+        """done 后显示金币获取。"""
+        mock_home.is_dir.return_value = True
+        mock_voyage["inst"].complete.return_value = {
+            "success": True,
+            "message": "完成！推进了 1 格",
+            "tiles_revealed": 1,
+            "log_entry": "晨光洒在甲板上。",
+            "milestone": None,
+            "error": None,
+            "llm_used": False,
+            "coins": {
+                "total": 15,
+                "breakdown": {"每日打卡": 10, "暴风加成": 5},
+            },
+            "treasures": [],
+        }
+
+        result = runner.invoke(main, ["done"])
+
+        assert result.exit_code == 0
+        assert "+15 金币" in result.output
+        assert "每日打卡" in result.output
+        assert "暴风加成" in result.output
+
+    @patch("bestman.cli.BESTMAN_HOME")
+    def test_done_shows_treasure(self, mock_home, mock_voyage, runner):
+        """done 后显示发现的宝藏。"""
+        mock_home.is_dir.return_value = True
+        mock_voyage["inst"].complete.return_value = {
+            "success": True,
+            "message": "完成！推进了 1 格",
+            "tiles_revealed": 8,
+            "log_entry": "测试日志。",
+            "milestone": None,
+            "error": None,
+            "llm_used": False,
+            "coins": {
+                "total": 60,
+                "breakdown": {"每日打卡": 10},
+            },
+            "treasures": [
+                {
+                    "name": "沉船宝藏",
+                    "type": "explicit",
+                    "coins": 50,
+                    "message": "你发现了一艘古代沉船！",
+                },
+            ],
+        }
+
+        result = runner.invoke(main, ["done"])
+
+        assert result.exit_code == 0
+        assert "沉船宝藏" in result.output
+        assert "+50 金币" in result.output
+        assert "古代沉船" in result.output
 
     @patch("bestman.cli.BESTMAN_HOME")
     def test_done_voyage_complete(self, mock_home, mock_voyage, runner):

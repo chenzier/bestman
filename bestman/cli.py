@@ -75,11 +75,13 @@ def _dashboard():
         console.print("[bold green]今日任务已完成 ✓[/bold green]")
 
     # 连击和令牌
+    coins = status.get("coins", 0)
     streak = status.get("streak", 0)
     tokens = status.get("skip_tokens", 0)
+    coin_icons = f"[bold yellow]💰 {coins} 金币[/bold yellow]" if coins > 0 else "[dim]💰 0 金币[/dim]"
     streak_icons = f"[bold yellow]🔥 {streak} 天连击[/bold yellow]" if streak > 0 else "[dim]暂无连击[/dim]"
     token_icons = f"[bold cyan]🎫 {tokens} 枚令牌[/bold cyan]" if tokens > 0 else "[dim]0 枚令牌[/dim]"
-    console.print(f"{streak_icons}  {token_icons}")
+    console.print(f"{coin_icons}  {streak_icons}  {token_icons}")
 
     if not status["today_done"]:
         console.print(f"今日任务：[bold cyan]{voyage.get_daily_task()}[/bold cyan]")
@@ -120,12 +122,14 @@ def _render_plan_view(voyage):
     # 头
     console.print()
     console.print("[bold cyan]⚓ 航行计划 — 175 天航向新大陆[/bold cyan]")
+    coins = status.get("coins", 0)
     streak = status.get("streak", 0)
+    coins_part = f" · [bold yellow]💰 {coins} 金币[/bold yellow]" if coins > 0 else ""
     streak_part = f" · [bold yellow]🔥 {streak} 天连击[/bold yellow]" if streak > 0 else ""
     console.print(
         f"  当前：DAY {current_day}/175 · "
         f"[bold yellow]{status['stage']['name']}[/bold yellow] · "
-        f"剩余 {status['remaining']} 天{streak_part}"
+        f"剩余 {status['remaining']} 天{coins_part}{streak_part}"
     )
     console.print()
 
@@ -244,6 +248,25 @@ def done(extra):
     console.print(f"Day {tiles} · [bold yellow]{stage_name}[/bold yellow]")
     console.print(f"[cyan]{result['log_entry']}[/cyan]")
     console.print()
+
+    # 金币获取
+    if result.get("coins") and result["coins"].get("breakdown"):
+        coins = result["coins"]
+        breakdown_str = " + ".join(
+            f"[yellow]{v} 金币[/yellow] [dim]({k})[/dim]"
+            for k, v in coins["breakdown"].items()
+            if not k.startswith("💎")  # treasure coins shown separately
+        )
+        if breakdown_str:
+            console.print(f"💰 [bold yellow]+{coins['total']} 金币[/bold yellow]  ({breakdown_str})")
+            console.print()
+
+    # 宝藏
+    if result.get("treasures"):
+        for treasure in result["treasures"]:
+            console.print(f"💎 [bold yellow]发现了{treasure['name']}！[/bold yellow] +{treasure['coins']} 金币")
+            console.print(f"[dim]{treasure['message']}[/dim]")
+            console.print()
 
     # 里程碑
     if result["milestone"]:

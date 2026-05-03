@@ -204,3 +204,76 @@ class TestSaveLog:
             state.save_log(f"2026-05-{i + 3:02d}", f"Day {i}")
         logs = state.get_logs(limit=3)
         assert len(logs) == 3
+
+
+class TestCoins:
+    """coins_earned 和 get_total_coins 测试。"""
+
+    def test_days_table_has_coins_earned_column(self, state):
+        cursor = state.conn.execute("PRAGMA table_info(days)")
+        columns = {row[1] for row in cursor.fetchall()}
+        assert "coins_earned" in columns
+
+    def test_get_total_coins_zero_when_no_days(self, state):
+        assert state.get_total_coins() == 0
+
+    def test_record_day_with_coins(self, state):
+        state.record_day("2026-05-03", completed=1, extra=0, coins_earned=15)
+        assert state.get_total_coins() == 15
+
+    def test_get_total_coins_sums_across_days(self, state):
+        state.record_day("2026-05-03", completed=1, extra=0, coins_earned=10)
+        state.record_day("2026-05-04", completed=2, extra=0, coins_earned=25)
+        state.record_day("2026-05-05", completed=1, extra=0, coins_earned=10)
+        assert state.get_total_coins() == 45
+
+    def test_record_day_coins_default_to_zero(self, state):
+        """不传 coins_earned 时默认为 0。"""
+        state.record_day("2026-05-03", completed=1)
+        assert state.get_total_coins() == 0
+
+    def test_skip_day_no_coins(self, state):
+        """跳过日通常不产金币。"""
+        state.record_day("2026-05-03", completed=0, extra=0, used_skip=1, coins_earned=0)
+        assert state.get_total_coins() == 0
+
+
+class TestTreasures:
+    """treasures 表和宝藏持久化测试。"""
+
+    def test_migrate_creates_treasures_table(self, state):
+        cursor = state.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='treasures'"
+        )
+        assert cursor.fetchone() is not None
+
+    def test_discover_treasure_stores_record(self, state):
+        state.discover_treasure("沉船宝藏", "explicit", 50, "2026-05-03")
+        treasures = state.get_treasures()
+        assert len(treasures) == 1
+        assert treasures[0]["name"] == "沉船宝藏"
+        assert treasures[0]["type"] == "explicit"
+        assert treasures[0]["coins"] == 50
+        assert treasures[0]["discovered_date"] == "2026-05-03"
+
+    def test_get_treasures_ordered_by_date(self, state):
+        state.discover_treasure("First", "explicit", 30, "2026-05-03")
+        state.discover_treasure("Second", "implicit", 20, "2026-05-01")
+        treasures = state.get_treasures()
+        assert treasures[0]["name"] == "Second"  # earlier date first
+        assert treasures[1]["name"] == "First"
+
+    def test_multiple_treasures(self, state):
+        state.discover_treasure("A", "explicit", 50, "2026-05-03")
+        state.discover_treasure("B", "implicit", 20, "2026-05-04")
+        assert len(state.get_treasures()) == 2
+
+    def test_no_treasures_returns_empty_list(self, state):
+        assert state.get_treasures() == []
+
+    def test_save_log_with_treasure_found_event_type(self, state):
+        """treasure_found 事件类型可用于 voyage_logs。"""
+        state.save_log("2026-05-03", "发现了沉船宝藏！", event_type="treasure_found")
+        logs = state.get_logs(limit=10)
+        assert len(logs) == 1
+        assert logs[0]["text"] == "发现了沉船宝藏！"
