@@ -36,6 +36,20 @@ class VesselDef:
 
 
 @dataclass
+class TextureDef:
+    """A texture pattern for filling map cells (仿 VesselDef.pixels).
+
+    The texture is defined as a list of strings (one per row), where
+    each character maps to a colour in the palette dict.  Characters
+    not in the palette are treated as transparent.
+    """
+
+    name: str                       # "calm" / "ripple" / "wave" / "foam" / "wake"
+    pixels: list[str]               # character matrix
+    palette: dict[str, tuple]       # char → (R,G,B,A)
+
+
+@dataclass
 class TileSet:
     """Visual tile characters and Rich markup for a theme."""
 
@@ -92,6 +106,9 @@ class Theme:
 
     # Vessel (载具) definitions keyed by vessel ID
     vessels: dict = field(default_factory=dict)
+
+    # Texture definitions keyed by texture name ("calm", "ripple", …)
+    textures: dict = field(default_factory=dict)
 
     def stage_display_name(self, config_name: str) -> str:
         """Get themed display name for a stage, with fallback to config name."""

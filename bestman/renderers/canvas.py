@@ -19,6 +19,7 @@ import sys
 import zlib
 
 from bestman.renderers.base import BaseRenderer
+from bestman.themes.naval import get_stage_texture
 
 
 # ── 画布尺寸 ─────────────────────────────────────────────────────
@@ -71,6 +72,50 @@ GLOW_B = 60
 # 标题色
 TITLE_COLOR     = (78, 201, 176, 255)
 SUBTITLE_COLOR  = (86, 156, 214, 255)
+
+
+# ── 默认阶段配置（纹理映射用）─────────────────────────────────
+
+_DEFAULT_STAGES = [
+    {"name": "启航", "days": [1, 25]},
+    {"name": "迷雾之海", "days": [26, 50]},
+    {"name": "季风带", "days": [51, 75]},
+    {"name": "贸易航线", "days": [76, 100]},
+    {"name": "赤道无风带", "days": [101, 125]},
+    {"name": "信风带", "days": [126, 150]},
+    {"name": "新大陆近海", "days": [151, 175]},
+]
+
+
+# ── 纹理绘制 ─────────────────────────────────────────────────────
+
+def draw_texture(cell_cx: int, cell_cy: int, texture_def, base_map: dict):
+    """Draw a texture into a grid cell's interior on the base map.
+
+    Maps each pixel of the texture matrix to the cell interior
+    (CELL−2 × CELL−2 pixels, skipping the 1 px grid border).
+
+    Args:
+        cell_cx: Grid column of the cell.
+        cell_cy: Grid row of the cell.
+        texture_def: TextureDef with ``.pixels`` and ``.palette``.
+        base_map: Dict ``{(x, y): (R,G,B,A)}`` to draw into.
+    """
+    origin_x = PAD_X + cell_cx * CELL + 1
+    origin_y = PAD_Y + cell_cy * CELL + 1
+    inner = CELL - 2  # cell interior size (18 px for CELL=20)
+
+    for ty, row in enumerate(texture_def.pixels):
+        if ty >= inner:
+            break
+        for tx, ch in enumerate(row):
+            if tx >= inner:
+                break
+            color = texture_def.palette.get(ch)
+            if color and len(color) >= 4 and color[3] > 0:
+                px = origin_x + tx
+                py = origin_y + ty
+                base_map[(px, py)] = color
 
 
 # ── PNG 生成 ─────────────────────────────────────────────────────
@@ -268,6 +313,8 @@ def _render_png(
     vessel_name: str,
     vessel_def,
     milestones_config: dict | None = None,
+    textures: dict | None = None,
+    stages: list | None = None,
 ) -> bytes:
     """Render the full voyage map as a PNG.
 
@@ -281,6 +328,9 @@ def _render_png(
         vessel_name: Vessel ID string (e.g. "schooner").
         vessel_def: VesselDef with pixel art data.
         milestones_config: Dict mapping ``day_int → name_str``.
+        textures: Dict of ``texture_name → TextureDef`` from the theme.
+        stages: List of ``{"name": str, "days": [start, end]}`` stage
+            configs for mapping tile index → stage → texture.
 
     Returns:
         PNG image as bytes.
@@ -353,6 +403,35 @@ def _render_png(
     for x in range(W):
         for y in range(H):
             base_map[(x, y)] = pixel_fn(x, y)
+
+    # ── 纹理绘制 ──────────────────────────────────────────────
+
+    # 构建 route index → stage name 映射（用于查纹理）
+    _stages = stages if stages is not None else _DEFAULT_STAGES
+    idx_to_stage_name = {}
+    for stage in _stages:
+        start, end = stage["days"]
+        for i in range(start - 1, end):
+            idx_to_stage_name[i] = stage["name"]
+
+    if textures:
+        # 4a. 阶段底纹 — 已揭示 tile 上画对应阶段纹理
+        for idx in range(min(tiles_revealed, len(route))):
+            cx, cy = route[idx]
+            stage_name_tile = idx_to_stage_name.get(idx, "未知")
+            texture_name = get_stage_texture(stage_name_tile)
+            texture_def = textures.get(texture_name)
+            if texture_def:
+                draw_texture(cx, cy, texture_def, base_map)
+
+        # 4b. 尾迹 — 船身后 5 格覆盖 wake 纹理
+        if tiles_revealed > 0 and tiles_revealed <= len(route):
+            wake_def = textures.get("wake")
+            if wake_def:
+                ship_idx = tiles_revealed - 1
+                for i in range(max(0, ship_idx - 5), ship_idx):
+                    wx, wy = route[i]
+                    draw_texture(wx, wy, wake_def, base_map)
 
     # 5. 里程碑标记 — 金色菱形
     for (mcx, mcy), mname in milestone_cells.items():
@@ -480,6 +559,8 @@ class CanvasRenderer(BaseRenderer):
             vessel_name=getattr(vessel_def, "name", "unknown") if vessel_def else "unknown",
             vessel_def=vessel_def,
             milestones_config=data.get("milestones", {}),
+            textures=getattr(theme, "textures", None) if theme else None,
+            stages=data.get("stages", None),
         )
 
 
@@ -512,6 +593,8 @@ def render_map(
         vessel_name=vessel_name,
         vessel_def=vessel_def,
         milestones_config=milestones_config,
+        textures=None,
+        stages=None,
     )
 
 
@@ -520,6 +603,7 @@ def render_map(
 def _self_test():
     """Quick self-test: render a demo map and display it."""
     from bestman.themes.base import VesselDef
+    from bestman.themes.naval import _NAVAL_TEXTURES
 
     # 生成简单的直线 route（50×14 网格，从左到右蜿蜒）
     rng = random.Random(7)
@@ -564,6 +648,8 @@ def _self_test():
         vessel_name="schooner",
         vessel_def=demo_vessel,
         milestones_config=milestones,
+        textures=_NAVAL_TEXTURES,
+        stages=_DEFAULT_STAGES,
     )
 
     if kitty_available():
