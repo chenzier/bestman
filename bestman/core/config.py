@@ -15,9 +15,9 @@ DEFAULT_CONFIG = {
     },
     "voyage": {
         "theme": "naval",
-        "total_days": 175,
-        "end_date": "2026-10-25",
-        "default_daily_task": "死虫式 3×10 + 静蹲 2×30秒",
+        "total_days": 120,
+        "end_date": "",
+        "default_daily_task": "未设置 — 运行 bestman plan create 制定计划",
         "milestones": {
             25: "穿越迷雾之海",
             50: "进入季风带",

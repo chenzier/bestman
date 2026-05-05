@@ -63,7 +63,7 @@ class TestLoadConfig:
         with patch("bestman.core.config.BESTMAN_HOME", bestman_dir):
             cfg = config.load_config()
 
-        assert cfg["voyage"]["total_days"] == 175
+        assert cfg["voyage"]["total_days"] == 120
         assert "default_daily_task" in cfg["voyage"]
 
     def test_merges_user_config_over_defaults(self, tmp_path):
@@ -88,7 +88,7 @@ class TestLoadConfig:
             cfg = config.load_config()
 
         assert cfg["profile"]["name"] == "TestUser"
-        assert cfg["voyage"]["total_days"] == 175
+        assert cfg["voyage"]["total_days"] == 120
 
 
 class TestDefaultConfig:
@@ -96,4 +96,4 @@ class TestDefaultConfig:
         assert "voyage" in config.DEFAULT_CONFIG
         assert "total_days" in config.DEFAULT_CONFIG["voyage"]
         assert "default_daily_task" in config.DEFAULT_CONFIG["voyage"]
-        assert config.DEFAULT_CONFIG["voyage"]["total_days"] == 175
+        assert config.DEFAULT_CONFIG["voyage"]["total_days"] == 120

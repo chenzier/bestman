@@ -105,21 +105,26 @@ def mock_voyage():
 class TestInitCommand:
     """bestman init 测试。"""
 
+    @patch("bestman.ui.cli.save_config")
     @patch("bestman.ui.cli.ensure_home")
-    def test_init_output(self, mock_ensure_home, runner):
-        """init 调用 ensure_home，输出包含 已就绪。"""
-        result = runner.invoke(main, ["init"])
+    def test_init_output(self, mock_ensure_home, mock_save, runner):
+        """init 调用 ensure_home，输出包含 已就绪 和动态日期。"""
+        result = runner.invoke(main, ["init"], input="\n\n")
         assert result.exit_code == 0
         mock_ensure_home.assert_called_once()
         assert "已就绪" in result.output
-        assert "175 天" in result.output
+        assert "航程" in result.output
+        assert "航行周期" in result.output
+        today_str = date.today().isoformat()
+        assert today_str in result.output
 
+    @patch("bestman.ui.cli.save_config")
     @patch("bestman.ui.cli.ensure_home")
-    def test_init_shows_instructions(self, mock_ensure_home, runner):
+    def test_init_shows_instructions(self, mock_ensure_home, mock_save, runner):
         """init 输出包含数据目录和下一步提示。"""
-        result = runner.invoke(main, ["init"])
+        result = runner.invoke(main, ["init"], input="\n\n")
         assert result.exit_code == 0
-        assert "bestman init" not in result.output.lower() or "bestman" in result.output
+        assert "bestman" in result.output
 
 
 class TestDashboard:

@@ -160,17 +160,61 @@ def map_cmd():
 def init():
     """初始化 bestman 航行。
 
-    创建 ~/.bestman/ 目录和默认配置文件。
+    创建 ~/.bestman/ 目录和配置文件，让你设置自己的航行参数。
     """
-    ensure_home()
+    from rich.rule import Rule
+
     console.print()
+    console.print(Rule("[bold cyan]⚓ bestman 初始化[/bold cyan]"))
+    console.print()
+    console.print("[dim]欢迎登船！先帮你配置航行参数。[/dim]")
+    console.print()
+
+    # 1. 航行周期
+    total_days = click.prompt(
+        "航行周期（天）",
+        type=int,
+        default=120,
+        show_default=True,
+    )
+    console.print()
+
+    # 2. 每日训练
+    console.print("每日训练任务是什么？")
+    console.print("[dim]示例：深蹲 3×15 + 平板支撑 3×30秒[/dim]")
+    console.print("[dim]留空则设为「未设置」（稍后可用 bestman plan create 制定计划）[/dim]")
+    daily_task = click.prompt(
+        "每日任务",
+        default="",
+        show_default=False,
+    )
+    if not daily_task.strip():
+        daily_task = "未设置 — 运行 bestman plan create 制定计划"
+    console.print()
+
+    # 3. 计算日期
+    today = date.today()
+    end_date = today + timedelta(days=total_days)
+
+    # 写入配置
+    ensure_home()
+    cfg = load_config()
+    cfg["voyage"]["total_days"] = total_days
+    cfg["voyage"]["end_date"] = end_date.isoformat()
+    cfg["voyage"]["default_daily_task"] = daily_task
+    save_config(cfg)
+
+    # 欢迎信息
     console.print("[bold cyan]⚓ bestman 号已就绪[/bold cyan]")
-    console.print(f"[dim]航线：2026-05-03 → 2026-10-25[/dim]")
-    console.print(f"[dim]航程：175 天[/dim]")
-    console.print(f"[dim]每日必定任务：死虫式 3×10 + 静蹲 2×30秒[/dim]")
+    console.print(f"[dim]航线：{today.isoformat()} → {end_date.isoformat()}[/dim]")
+    console.print(f"[dim]航程：{total_days} 天[/dim]")
+    console.print(f"[dim]每日任务：{daily_task}[/dim]")
     console.print(f"[dim]数据目录：{BESTMAN_HOME}[/dim]")
     console.print()
     console.print("[dim]运行 [bold green]bestman[/bold green] 查看仪表盘[/dim]")
+    console.print(
+        "[dim]运行 [bold green]bestman plan create[/bold green] 制定详细健身计划（需配置 LLM）[/dim]"
+    )
 
 
 @main.command()
