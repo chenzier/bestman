@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>bestman 载具地图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #081018;
+    color: #c8d8e8;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+    min-height: 100vh;
+  }
+  h1 { color: #4ec9b0; margin-bottom: 4px; font-size: 20px; }
+  .subtitle { color: #569cd6; margin-bottom: 20px; font-size: 13px; }
+  .controls { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; justify-content: center; }
+  .vessel-btn {
+    padding: 6px 12px; border: 2px solid #2a4a6a; background: #0d1f33;
+    color: #c8d8e8; cursor: pointer; border-radius: 6px; font-family: inherit;
+    font-size: 12px; transition: all .15s;
+  }
+  .vessel-btn:hover { border-color: #4ec9b0; background: #122840; }
+  .vessel-btn.active { border-color: #ffd700; background: #1a3050; color: #ffd700; }
+  .debug { color: #ff6666; font-size: 11px; margin-bottom: 8px; font-family: monospace; }
+  .info { margin-top: 14px; display: flex; gap: 28px; }
+  .stat { text-align: center; }
+  .stat .val { font-size: 24px; color: #ffd700; font-weight: bold; }
+  .stat .lbl { font-size: 11px; color: #6a8aaa; }
+</style>
+</head>
+<body>
+
+<h1>bestman · 航海地图</h1>
+<p class="subtitle">DAY 26 · 季风带 · 距新大陆 149 天</p>
+
+<div class="controls" id="controls"></div>
+<div class="debug" id="debug"></div>
+<canvas id="map"></canvas>
+
+<div class="info">
+  <div class="stat"><div class="val">26</div><div class="lbl">已航行</div></div>
+  <div class="stat"><div class="val">149</div><div class="lbl">剩余</div></div>
+  <div class="stat"><div class="val">5🔥</div><div class="lbl">连击</div></div>
+  <div class="stat"><div class="val">1🛡️</div><div class="lbl">令牌</div></div>
+</div>
+
+<script>
+const DEBUG = document.getElementById('debug');
+
+// ── 尺寸 ──
+const CELL = 32;
+const PAD  = 24;
+const COLS = 28;
+const ROWS = 8;
+const REVEALED = 24;
+const SHIP_C = 23; // 船在第 23 列（在已揭示区）
+const SHIP_R = 2;  // 第 3 行
+
+const MAP_W = COLS * CELL;
+const MAP_H = ROWS * CELL;
+const CANVAS_W = MAP_W + PAD * 2;
+const CANVAS_H = MAP_H + PAD * 2 + 40;
+const GRID_Y = PAD + 40; // 格子区域顶部 Y
+
+const canvas = document.getElementById('map');
+canvas.width = CANVAS_W;
+canvas.height = CANVAS_H;
+const ctx = canvas.getContext('2d');
+
+// ── 颜色 ──
+const CLR = {
+  bg:    '#081018',
+  ocean0:'#156870',
+  ocean1:'#1a8078',
+  ocean2:'#109090',
+  mist:  '#162636',
+  gold:  '#ffd700',
+  grid:  'rgba(20,60,80,0.25)',
+};
+
+let vessel = 'schooner';
+
+// ── 画船（直接在主 canvas 用 fillRect 画像素块，不用离屏 canvas） ──
+function drawShip(cx, cy, type) {
+  // cx, cy = 格子中心
+  const PS = 3; // 像素尺寸
+  const patterns = {
+
+    schooner: {
+      w:12, h:9, // 12×9 像素
+      data: [
+        '..BBBBB....',
+        '.BWWWWWB...',
+        '.BMWWWMB...',
+        'BBBBBBBBBB.',
+        'BBGBBGBBBB.',
+        '.BBBBBBBBB.',
+        '..BBBBB....',
+      ],
+      pal: {
+        B: ()=> { ctx.fillStyle='#4a2010'; }, // 船体
+        W: ()=> { ctx.fillStyle='#fffff0'; }, // 帆
+        M: ()=> { ctx.fillStyle='#a06030'; }, // 桅杆
+        G: ()=> { ctx.fillStyle='#d4b020'; }, // 金饰
+      }
+    },
+
+    dragon: {
+      w:12, h:9,
+      data: [
+        '...RRR......',
+        '.RRRRRR.....',
+        'ROOOOOOR....',
+        'RODDDDDOR...',
+        'ODDGGGGDDO..',
+        '.RDDDDDDR...',
+        '..RRRRR.....',
+      ],
+      pal: {
+        R: ()=> { ctx.fillStyle='#c02020'; },
+        O: ()=> { ctx.fillStyle='#f05010'; },
+        D: ()=> { ctx.fillStyle='#702010'; },
+        G: ()=> { ctx.fillStyle='#e0c020'; },
+      }
+    },
+
+    ghost: {
+      w:11, h:8,
+      data: [
+        '..PPPPP...',
+        '.PPPPPPP..',
+        'PPPGPPGPP.',
+        'PPPPPPPPP.',
+        '.PPPPPPPPP',
+        '..PPPPP...',
+        '..........',
+      ],
+      pal: {
+        P: ()=> { ctx.fillStyle='#381850'; },
+        G: ()=> { ctx.fillStyle='#8830a0'; },
+      }
+    },
+
+    sword: {
+      w:11, h:8,
+      data: [
+        '...CCC....',
+        '..CXCXC...',
+        '.CXCXCXC..',
+        'CXCXCXCXC.',
+        '.CXCXCXC..',
+        '..CXCXC...',
+        '...CCC....',
+      ],
+      pal: {
+        C: ()=> { ctx.fillStyle='#1a2a40'; },
+        X: ()=> { ctx.fillStyle='#50d2ff'; },
+      }
+    },
+
+    yinglong: {
+      w:13, h:9,
+      data: [
+        '..GGGGGS....',
+        '.GJJJJJSG...',
+        'GJIIIJJJSG..',
+        'JJZJZJZJJ..',
+        'JIIJIIJJJ...',
+        '.GGGGGGG...',
+        '...NN......',
+      ],
+      pal: {
+        G: ()=> { ctx.fillStyle='#1a5a30'; },
+        J: ()=> { ctx.fillStyle='#60b040'; },
+        I: ()=> { ctx.fillStyle='#2a2a30'; },
+        Z: ()=> { ctx.fillStyle='#ffd020'; },
+        N: ()=> { ctx.fillStyle='#0d1e32'; },
+      }
+    },
+
+    bike: {
+      w:10, h:8,
+      data: [
+        '..RRRR..',
+        '.RROORR.',
+        'RROOOORR',
+        'RODDDDOR',
+        'ROBOOBOR',
+        '.RDDDDR.',
+        '..RRRR..',
+      ],
+      pal: {
+        R: ()=> { ctx.fillStyle='#806010'; },
+        O: ()=> { ctx.fillStyle='#d09010'; },
+        D: ()=> { ctx.fillStyle='#181818'; },
+        B: ()=> { ctx.fillStyle='#ff6000'; },
+      }
+    },
+
+    ufo: {
+      w:10, h:7,
+      data: [
+        '..........',
+        '...SSS....',
+        '..SCCCS...',
+        '.SCSSSCS..',
+        '.SCCCCCS..',
+        '..S...S..',
+        '..........',
+      ],
+      pal: {
+        S: ()=> { ctx.fillStyle='#808090'; },
+        C: ()=> { ctx.fillStyle='#30d070'; },
+      }
+    },
+
+    qilin: {
+      w:11, h:8,
+      data: [
+        '..GGGG....',
+        '.GZGZGZG..',
+        'GGGGGGGG..',
+        'GGGGGGGGG.',
+        'GZGGGGZG..',
+        '.GGGGGG...',
+        '...NN....',
+      ],
+      pal: {
+        G: ()=> { ctx.fillStyle='#c09020'; },
+        Z: ()=> { ctx.fillStyle='#ff3030'; },
+        N: ()=> { ctx.fillStyle='#0d1e32'; },
+      }
+    },
+  };
+
+  const p = patterns[type];
+  if (!p) return;
+
+  // 左上角
+  const ox = cx - (p.w * PS) / 2;
+  const oy = cy - (p.h * PS) / 2 - 8; // 船在格子中心上方
+
+  // 先画个半透明背景便于看清
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(ox - 2, oy - 2, p.w * PS + 4, p.h * PS + 4);
+
+  for (let py = 0; py < p.data.length; py++) {
+    const row = p.data[py];
+    for (let px = 0; px < row.length; px++) {
+      const ch = row[px];
+      if (p.pal[ch]) {
+        p.pal[ch](); // 设置 fillStyle
+        ctx.fillRect(ox + px * PS, oy + py * PS, PS, PS);
+      }
+    }
+  }
+}
+
+// ── 画完整地图 ──
+function drawAll() {
+  // 清背景
+  ctx.fillStyle = CLR.bg;
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // 标题区文字
+  ctx.fillStyle = '#4ec9b0';
+  ctx.font = '12px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(`VESSEL: ${vessel.toUpperCase()}`, PAD, 24);
+
+  // ── 画海洋格 ──
+  let seed = 42;
+  function nextRand() { seed = (seed * 16807 + 0) % 2147483647; return seed / 2147483647; }
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const x = PAD + c * CELL;
+      const y = GRID_Y + r * CELL;
+      const revealed = c <= REVEALED;
+
+      if (revealed) {
+        const rand = nextRand();
+        if (rand < 0.5) ctx.fillStyle = CLR.ocean0;
+        else if (rand < 0.75) ctx.fillStyle = CLR.ocean1;
+        else if (rand < 0.93) ctx.fillStyle = CLR.ocean2;
+        else ctx.fillStyle = '#104848';
+        ctx.fillRect(x, y, CELL, CELL);
+
+        // 波纹
+        if (rand > 0.88) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(x + 3, y + CELL*0.45);
+          ctx.quadraticCurveTo(x + CELL/2, y + CELL*0.3, x + CELL - 3, y + CELL*0.45);
+          ctx.stroke();
+        }
+
+        // ✦ 里程碑
+        if (c === 14 && r === 1) {
+          ctx.fillStyle = CLR.gold;
+          ctx.font = 'bold 16px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('✦', x + CELL/2, y + CELL/2);
+        }
+        // 驿站
+        if (c === 6 && r === 4) {
+          ctx.font = '16px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('🏝️', x + CELL/2, y + CELL/2);
+        }
+      } else {
+        ctx.fillStyle = CLR.mist;
+        ctx.fillRect(x, y, CELL, CELL);
+      }
+    }
+  }
+
+  // ── 网格线 ──
+  ctx.strokeStyle = CLR.grid;
+  ctx.lineWidth = 0.5;
+  for (let r = 0; r <= ROWS; r++) {
+    ctx.beginPath();
+    ctx.moveTo(PAD, GRID_Y + r * CELL);
+    ctx.lineTo(PAD + MAP_W, GRID_Y + r * CELL);
+    ctx.stroke();
+  }
+  for (let c = 0; c <= COLS; c++) {
+    ctx.beginPath();
+    ctx.moveTo(PAD + c * CELL, GRID_Y);
+    ctx.lineTo(PAD + c * CELL, GRID_Y + MAP_H);
+    ctx.stroke();
+  }
+
+  // ── 迷雾渐变 ──
+  const mistX = PAD + (REVEALED + 1) * CELL; // 已揭示的下一格
+  const grad = ctx.createLinearGradient(mistX - CELL*1.5, 0, mistX + CELL*1.5, 0);
+  grad.addColorStop(0, 'rgba(8,16,24,0)');
+  grad.addColorStop(0.5, 'rgba(8,16,24,0.2)');
+  grad.addColorStop(1, 'rgba(8,16,24,0.55)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(mistX - CELL*2, GRID_Y, CELL * 4, MAP_H);
+
+  // ── 船（画在格子中心） ──
+  const shipCX = PAD + SHIP_C * CELL + CELL/2;
+  const shipCY = GRID_Y + SHIP_R * CELL + CELL/2;
+  drawShip(shipCX, shipCY, vessel);
+
+  // ── 金色信标 ──
+  ctx.fillStyle = 'rgba(255,215,0,0.6)';
+  ctx.beginPath();
+  ctx.arc(shipCX, shipCY + 18, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  DEBUG.textContent = `ship @ col=${SHIP_C} row=${SHIP_R}  cx=${Math.round(shipCX)} cy=${Math.round(shipCY)}  canvas=${CANVAS_W}x${CANVAS_H}`;
+}
+
+// ── 按钮 ──
+const vessels = [
+  ['schooner','⛵ 初阶帆船'], ['dragon','🐉 龙头战船'], ['ghost','👻 幽灵船'],
+  ['sword','🗡️ 飞剑'], ['yinglong','🦅 应龙'], ['bike','🏍️ 废铁摩托'],
+  ['ufo','🛸 UFO'], ['qilin','🦄 麒麟'],
+];
+
+const ctrls = document.getElementById('controls');
+vessels.forEach(([id, name]) => {
+  const btn = document.createElement('button');
+  btn.className = 'vessel-btn' + (id === vessel ? ' active' : '');
+  btn.textContent = name;
+  btn.onclick = () => {
+    document.querySelectorAll('.vessel-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    vessel = id;
+    drawAll();
+  };
+  ctrls.appendChild(btn);
+});
+
+drawAll();
+
+// 信标闪烁动画
+function animate() {
+  const shipCX = PAD + SHIP_C * CELL + CELL/2;
+  const shipCY = GRID_Y + SHIP_R * CELL + CELL/2;
+  const t = Date.now() / 1000;
+
+  // 只 redraw 光晕小区域
+  const glow = ctx.createRadialGradient(shipCX, shipCY - 4, 2, shipCX, shipCY - 4, 24);
+  const a = 0.2 + 0.2 * Math.sin(t * 3);
+  glow.addColorStop(0, `rgba(255,215,0,${a + 0.15})`);
+  glow.addColorStop(1, 'rgba(255,215,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(shipCX - 28, shipCY - 28, 56, 56);
+
+  // 重绘船精灵（覆盖被光晕擦掉的像素）
+  drawShip(shipCX, shipCY, vessel);
+
+  // 信标
+  const ba = 0.3 + 0.5 * Math.abs(Math.sin(t * 5));
+  ctx.fillStyle = `rgba(255,215,0,${ba})`;
+  ctx.beginPath();
+  ctx.arc(shipCX, shipCY + 18, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  requestAnimationFrame(animate);
+}
+animate();
+</script>
+
+</body>
+</html>
