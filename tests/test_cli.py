@@ -109,7 +109,8 @@ class TestInitCommand:
     @patch("bestman.ui.cli.ensure_home")
     def test_init_output(self, mock_ensure_home, mock_save, runner):
         """init 调用 ensure_home，输出包含 已就绪 和动态日期。"""
-        result = runner.invoke(main, ["init"], input="\n\n")
+        # 三个回车：120天默认、空任务、跳过 LLM 配置（confirm 回车=yes, api key 空=跳过）
+        result = runner.invoke(main, ["init"], input="\n\n\n\n")
         assert result.exit_code == 0
         mock_ensure_home.assert_called_once()
         assert "已就绪" in result.output
@@ -122,7 +123,7 @@ class TestInitCommand:
     @patch("bestman.ui.cli.ensure_home")
     def test_init_shows_instructions(self, mock_ensure_home, mock_save, runner):
         """init 输出包含数据目录和下一步提示。"""
-        result = runner.invoke(main, ["init"], input="\n\n")
+        result = runner.invoke(main, ["init"], input="\n\n\n\n")
         assert result.exit_code == 0
         assert "bestman" in result.output
 

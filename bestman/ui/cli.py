@@ -192,7 +192,49 @@ def init():
         daily_task = "未设置 — 运行 bestman plan create 制定计划"
     console.print()
 
-    # 3. 计算日期
+    # 3. LLM 配置
+    console.print(Rule("[dim]AI 导航员配置（可选）[/dim]"))
+    console.print()
+    console.print("[dim]AI 导航员可以帮你写航海日志、制定健身计划、在对话中调整训练。[/dim]")
+    console.print("[dim]支持 OpenAI 兼容接口（DeepSeek、OpenAI、OpenRouter 等）。[/dim]")
+    console.print("[dim]不配置也能正常使用——日志会用模板生成，部分功能受限。[/dim]")
+    console.print()
+    llm_configured = False
+    if click.confirm("是否现在配置 AI 导航员？", default=True):
+        api_key = click.prompt(
+            "API Key",
+            default="",
+            show_default=False,
+        )
+        if api_key.strip():
+            base_url = click.prompt(
+                "API Base URL",
+                default="https://api.deepseek.com",
+                show_default=True,
+            )
+            model = click.prompt(
+                "模型名称",
+                default="deepseek-chat",
+                show_default=True,
+            )
+            # 写入 ~/.bestman/.env
+            env_path = BESTMAN_HOME / ".env"
+            env_path.write_text(
+                f"# bestman LLM 配置\n"
+                f"OPENAI_API_KEY={api_key.strip()}\n"
+                f"OPENAI_BASE_URL={base_url.strip()}\n"
+                f"LLM_MODEL={model.strip()}\n"
+            )
+            llm_configured = True
+            console.print()
+            console.print("[green]✓ AI 导航员已配置[/green]")
+        else:
+            console.print("[dim]已跳过，稍后可在 [bold]~/.bestman/.env[/bold] 中手动配置。[/dim]")
+    else:
+        console.print("[dim]已跳过，稍后可在 [bold]~/.bestman/.env[/bold] 中手动配置。[/dim]")
+    console.print()
+
+    # 4. 计算日期
     today = date.today()
     end_date = today + timedelta(days=total_days)
 
@@ -209,12 +251,17 @@ def init():
     console.print(f"[dim]航线：{today.isoformat()} → {end_date.isoformat()}[/dim]")
     console.print(f"[dim]航程：{total_days} 天[/dim]")
     console.print(f"[dim]每日任务：{daily_task}[/dim]")
+    if llm_configured:
+        console.print(f"[dim]AI 导航员：[green]已配置[/green][/dim]")
+    else:
+        console.print(f"[dim]AI 导航员：[yellow]未配置[/yellow]（稍后编辑 ~/.bestman/.env）[/dim]")
     console.print(f"[dim]数据目录：{BESTMAN_HOME}[/dim]")
     console.print()
     console.print("[dim]运行 [bold green]bestman[/bold green] 查看仪表盘[/dim]")
-    console.print(
-        "[dim]运行 [bold green]bestman plan create[/bold green] 制定详细健身计划（需配置 LLM）[/dim]"
-    )
+    if not llm_configured:
+        console.print(
+            "[dim]运行 [bold green]bestman plan create[/bold green] 制定详细健身计划（需先配置 LLM）[/dim]"
+        )
 
 
 @main.command()
