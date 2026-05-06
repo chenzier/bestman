@@ -33,22 +33,7 @@ def render_dashboard(console, voyage):
     console.print()
 
     # 地图：优先 Canvas，回退 Rich
-    if kitty_available():
-        try:
-            canvas_renderer = CanvasRenderer()
-            png = canvas_renderer.render_map(
-                data=voyage.map_engine.build_render_data(
-                    tiles_revealed=status["tiles_revealed"],
-                ),
-                theme=voyage.theme,
-                vessel_def=voyage.theme.vessels.get(voyage.current_vessel),
-            )
-            canvas_kitty_display(png, cols=90, rows=24)
-        except Exception:
-            # Fallback to Rich if canvas rendering fails
-            console.print(voyage.render_map())
-    else:
-        console.print(voyage.render_map())
+    _render_map_or_canvas(console, voyage)
     console.print()
 
     # 状态行
@@ -76,6 +61,20 @@ def render_dashboard(console, voyage):
 
     if not status["today_done"]:
         console.print(f"今日任务：[bold cyan]{voyage.get_daily_task()}[/bold cyan]")
+
+    # 进度条
+    progress = status["current_day"] / status["total_days"]
+    bar_w = 30
+    filled = int(bar_w * progress)
+    bar = f"[bold cyan]{'█' * filled}[/][dim]{'░' * (bar_w - filled)}[/]"
+    console.print(f"进度 {bar} {int(progress*100)}%")
+
+    # 图例
+    console.print(
+        "图例:  [bold cyan]◉[/]起点  [bold yellow]⚓[/]船  [bold magenta]✦[/]里程碑  "
+        "[dim blue]▒[/]迷雾"
+    )
+    console.print()
 
     console.print()
 
@@ -106,6 +105,27 @@ def render_dashboard(console, voyage):
 
 # ── 打卡结果 ────────────────────────────────────────────────────
 
+def _render_map_or_canvas(console, voyage, **kw):
+    """Render the map: Canvas PNG if available, else ASCII Rich markup."""
+    status = voyage.get_status()
+    if kitty_available():
+        try:
+            canvas_renderer = CanvasRenderer()
+            png = canvas_renderer.render_map(
+                data=voyage.map_engine.build_render_data(
+                    tiles_revealed=status["tiles_revealed"],
+                    **kw,
+                ),
+                theme=voyage.theme,
+                vessel_def=voyage.theme.vessels.get(voyage.current_vessel),
+            )
+            canvas_kitty_display(png, cols=90, rows=24)
+            return
+        except Exception:
+            pass
+    console.print(voyage.render_map(**kw))
+
+
 def render_done(console, voyage, result, total_advance, mode="deterministic"):
     """渲染打卡完成后的结果。
 
@@ -120,14 +140,16 @@ def render_done(console, voyage, result, total_advance, mode="deterministic"):
 
     # 摇摆动画
     sway_config = voyage.config.get("today_trail", {}).get("sway", {})
-    if sway_config.get("enabled", True) and total_advance > 0:
+    do_sway = sway_config.get("enabled", True) and total_advance > 0
+
+    if do_sway:
         amplitude = sway_config.get("amplitude", 2)
         fps = sway_config.get("fps", 8)
         sway_duration = sway_config.get("duration", 0.6)
         total_frames = max(1, int(fps * sway_duration))
-        map_lines = voyage.map_engine.height + 1  # grid rows + Rule
+        map_lines = voyage.map_engine.height + 1
 
-        # First swayed frame — normal print, then pause
+        # First frame — ASCII for fast line-by-line redraw
         console.print(Rule(rule_text, style="dim cyan"))
         console.print(voyage.render_map(
             today_advance=total_advance,
@@ -139,7 +161,6 @@ def render_done(console, voyage, result, total_advance, mode="deterministic"):
             current_offset = amplitude * (1.0 - progress)
             phase = frame * (4 * math.pi / total_frames)
 
-            # Move cursor up, clear rest of screen, redraw
             sys.stdout.write(f"\033[{map_lines}A\033[J")
             sys.stdout.flush()
             console.print(Rule(rule_text, style="dim cyan"))
@@ -148,12 +169,13 @@ def render_done(console, voyage, result, total_advance, mode="deterministic"):
                 sway_offset=current_offset, sway_phase=phase))
             time.sleep(1.0 / fps)
 
-        # Move up, clear, then final static frame below
+        # Replace animation area with clear space, then show Canvas PNG
         sys.stdout.write(f"\033[{map_lines}A\033[J")
         sys.stdout.flush()
 
+    # Final static map — Canvas PNG if available
     console.print(Rule(rule_text, style="dim cyan"))
-    console.print(voyage.render_map(today_advance=total_advance))
+    _render_map_or_canvas(console, voyage, today_advance=total_advance)
     console.print()
 
     # 今日航程数字确认

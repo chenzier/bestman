@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>bestman · 航海图设计方案对比</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: #0a0f14; color: #c8d8e8;
+    font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    padding: 24px 32px;
+  }
+  h1 { color: #4ec9b0; font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #6a8aaa; font-size: 13px; margin-bottom: 20px; }
+
+  .tab-bar { display:flex; gap:4px; margin-bottom:20px; }
+  .tab {
+    padding: 10px 24px; border:2px solid #1a3040; background: #0d1f33;
+    color: #8aa0b8; cursor:pointer; border-radius:8px 8px 0 0;
+    font-size:14px; font-family:inherit; transition:all .15s;
+  }
+  .tab:hover { border-color:#2a5a6a; color:#c8d8e8; }
+  .tab.active { border-color:#4ec9b0; background:#122840; color:#4ec9b0; border-bottom-color:#122840; }
+  .tab.hidden { display:none; }
+
+  .style-section { display:none; }
+  .style-section.active { display:block; }
+  .style-header { margin-bottom:14px; }
+  .style-header h2 { font-size:17px; color:#e0e8f0; margin-bottom:3px; }
+  .style-header .desc { font-size:12px; color:#6a8aaa; max-width:800px; line-height:1.6; }
+
+  .stage-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; margin-bottom:32px; }
+  .stage-card {
+    background:#0d1620; border:1px solid #1a2a3a; border-radius:10px;
+    padding:14px; text-align:center;
+  }
+  .stage-card h3 { font-size:12px; color:#8aa0b8; margin-bottom:2px; }
+  .stage-card .day-label { font-size:10px; color:#4a6a80; margin-bottom:8px; }
+  .stage-card canvas { display:block; margin:0 auto; border-radius:4px; }
+
+  .style-notes {
+    background:#0d1620; border:1px solid #1a2a3a; border-radius:8px;
+    padding:12px 16px; font-size:11px; color:#6a8aaa; margin-bottom:32px;
+    display:flex; gap:16px; flex-wrap:wrap;
+  }
+  .style-notes span { white-space:nowrap; }
+  .style-notes .pro { color:#4ec9b0; }
+  .style-notes .con { color:#ce9178; }
+</style>
+</head>
+<body>
+
+<h1>bestman · 航海图设计方案对比</h1>
+<p class="subtitle">3种视觉风格 × 4个旅程阶段 — 每条图含航迹、起点标记、图例</p>
+
+<div class="tab-bar">
+  <button class="tab active" data-style="0">A · 像素复古</button>
+  <button class="tab" data-style="1">B · 古典航海图</button>
+  <button class="tab" data-style="2">C · 极简暗色</button>
+  <button class="tab" data-style="3">D · 深蓝海洋</button>
+</div>
+
+<div id="sections"></div>
+
+<script>
+// ═══════════════════════════════════════════
+// 共享数据
+// ═══════════════════════════════════════════
+
+const COLS = 28, ROWS = 8, TOTAL_DAYS = 175;
+const STAGES = [
+  { name:'启航', day:10, label:'Day 10' },
+  { name:'季风带', day:87, label:'Day 87' },
+  { name:'近大陆', day:150, label:'Day 150' },
+  { name:'抵达！', day:175, label:'Day 175' },
+];
+
+function generateRoute() {
+  const route = [];
+  for (let d = 0; d < TOTAL_DAYS; d++) {
+    const p = d / (TOTAL_DAYS - 1);
+    const col = 1 + p * (COLS - 3);
+    const phase = p * Math.PI * 6;
+    const row = 3.5 + Math.sin(phase)*1.8 + Math.sin(phase*0.4)*0.7;
+    route.push({ x:col, y:row, day:d+1 });
+  }
+  return route;
+}
+const ROUTE = generateRoute();
+
+function shipCell(day) {
+  const p = ROUTE[Math.min(day-1, TOTAL_DAYS-1)];
+  return { col:Math.round(p.x), row:Math.round(p.y) };
+}
+
+function getMilestones() {
+  return [
+    { ...shipCell(50),  label:'贸易港', day:50 },
+    { ...shipCell(100), label:'中转站', day:100 },
+    { ...shipCell(150), label:'望大陆', day:150 },
+  ];
+}
+
+// 去重的航线格子（从 day 1 到 upToDay）
+function trailCells(upToDay) {
+  const cells = [];
+  const seen = new Set();
+  for (let d = 0; d < Math.min(upToDay, TOTAL_DAYS); d++) {
+    const c = shipCell(d + 1);
+    const key = `${c.col},${c.row}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      cells.push({ ...c, day: d+1 });
+    }
+  }
+  return cells;
+}
+
+// ═══════════════════════════════════════════
+// Canvas 尺寸（加高以容纳图例）
+// ═══════════════════════════════════════════
+const CELL = 15;
+const MAP_W = COLS * CELL;   // 420
+const MAP_H = ROWS * CELL;   // 120
+const PAD = 16;
+const TITLE_H = 24;
+const LEGEND_H = 26;
+const CANVAS_W = MAP_W + PAD * 2;        // 452
+const CANVAS_H = MAP_H + PAD * 2 + TITLE_H + LEGEND_H; // 120+32+24+26 = 202
+
+// ═══════════════════════════════════════════
+// 通用绘制：图例
+// ═══════════════════════════════════════════
+
+function drawLegend(ctx, items, y) {
+  // items: [{ color, label }]
+  const totalW = items.reduce((s,i) => s + i.label.length*7 + 20, 8);
+  let lx = PAD + (MAP_W - totalW) / 2;
+  ctx.font = '9px -apple-system, PingFang SC, sans-serif';
+  items.forEach(it => {
+    // 色块
+    ctx.fillStyle = it.color;
+    ctx.fillRect(lx, y - 6, 8, 8);
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(lx, y - 6, 8, 8);
+    // 文字
+    ctx.fillStyle = '#7a8a9a';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(it.label, lx + 12, y - 2);
+    lx += it.label.length * 7 + 24;
+  });
+}
+
+// ═══════════════════════════════════════════
+// Style A: 像素复古 —— 增强版
+// ═══════════════════════════════════════════
+
+function drawStyleA(canvas, day) {
+  const ctx = canvas.getContext('2d');
+  const ship = shipCell(day);
+  const milestones = getMilestones();
+  const trail = trailCells(day);
+  const start = shipCell(1);
+
+  // 背景
+  ctx.fillStyle = '#081018';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  const mapX = PAD, mapY = PAD + TITLE_H;
+  const legendY = mapY + MAP_H + PAD + 4;
+
+  // 标题
+  ctx.fillStyle = '#4ec9b0';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(`DAY ${day}  ·  ${day}/${TOTAL_DAYS}  ·  ${Math.round(day/TOTAL_DAYS*100)}%`, PAD, PAD + 10);
+
+  // 确定随机海洋颜色
+  let seed = 42;
+  function rng() { seed = (seed*16807+0)%2147483647; return seed/2147483647; }
+  const oceanColors = ['#156870','#1a8078','#109090','#104848','#167070'];
+  const mistColor = '#162636';
+
+  // 画格子
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const x = mapX + c*CELL, y = mapY + r*CELL;
+      const revealed = c <= Math.round(ROUTE[Math.min(day-1,TOTAL_DAYS-1)].x);
+      ctx.fillStyle = revealed ? oceanColors[Math.floor(rng()*oceanColors.length)] : mistColor;
+      ctx.fillRect(x, y, CELL, CELL);
+    }
+  }
+
+  // 已走航线高亮格子（在已揭示格子上叠加暖色）
+  trail.forEach(t => {
+    const x = mapX + t.col*CELL, y = mapY + t.row*CELL;
+    ctx.fillStyle = 'rgba(255,200,100,0.12)';
+    ctx.fillRect(x+1, y+1, CELL-2, CELL-2);
+  });
+
+  // 航迹线 — 连成金线
+  ctx.strokeStyle = 'rgba(255,200,80,0.35)';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  trail.forEach((t, i) => {
+    const px = mapX + t.col*CELL + CELL/2;
+    const py = mapY + t.row*CELL + CELL/2;
+    if (i===0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  });
+  ctx.stroke();
+
+  // 网格线
+  ctx.strokeStyle = 'rgba(20,60,80,0.25)';
+  ctx.lineWidth = 0.5;
+  for (let r = 0; r <= ROWS; r++) { ctx.beginPath(); ctx.moveTo(mapX, mapY+r*CELL); ctx.lineTo(mapX+MAP_W, mapY+r*CELL); ctx.stroke(); }
+  for (let c = 0; c <= COLS; c++) { ctx.beginPath(); ctx.moveTo(mapX+c*CELL, mapY); ctx.lineTo(mapX+c*CELL, mapY+MAP_H); ctx.stroke(); }
+
+  // 起点 ⚓
+  {
+    const sx = mapX + start.col*CELL + CELL/2;
+    const sy = mapY + start.row*CELL + CELL/2;
+    // 外圈
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.beginPath(); ctx.arc(sx, sy, 7, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#88ccff'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(sx, sy, 7, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = '#88ccff';
+    ctx.font = 'bold 9px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('起', sx, sy);
+  }
+
+  // 里程碑
+  milestones.forEach(m => {
+    if (m.day <= day) {
+      const mx = mapX + m.col*CELL + CELL/2;
+      const my = mapY + m.row*CELL + CELL/2;
+      ctx.fillStyle = '#ffd700';
+      ctx.font = 'bold 12px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('✦', mx, my);
+    }
+  });
+
+  // 终点
+  if (day >= TOTAL_DAYS) {
+    const fx = mapX + (COLS-2)*CELL + CELL/2;
+    const fy = mapY + 4*CELL + CELL/2;
+    const glow = ctx.createRadialGradient(fx,fy,3,fx,fy,CELL*2);
+    glow.addColorStop(0,'rgba(255,215,0,0.5)'); glow.addColorStop(1,'rgba(255,215,0,0)');
+    ctx.fillStyle = glow; ctx.fillRect(fx-CELL*2, fy-CELL*2, CELL*4, CELL*4);
+    ctx.fillStyle = '#ffd700'; ctx.font = '16px monospace';
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('★', fx, fy);
+  }
+
+  // 迷雾渐变
+  const rvCol = Math.round(ROUTE[Math.min(day-1,TOTAL_DAYS-1)].x);
+  const fogX = mapX + (rvCol+1)*CELL;
+  const fogGrad = ctx.createLinearGradient(fogX-CELL,0,fogX+CELL*2,0);
+  fogGrad.addColorStop(0,'rgba(8,16,24,0)'); fogGrad.addColorStop(1,'rgba(8,16,24,0.6)');
+  ctx.fillStyle = fogGrad; ctx.fillRect(fogX-CELL, mapY, CELL*3, MAP_H);
+
+  // 船
+  drawPixelShip(ctx, mapX+ship.col*CELL+CELL/2, mapY+ship.row*CELL+CELL/2, 2);
+
+  // 信标
+  const bX = mapX + ship.col*CELL + CELL/2;
+  const bY = mapY + ship.row*CELL + CELL/2;
+  const beacon = ctx.createRadialGradient(bX,bY-2,1,bX,bY-2,12);
+  beacon.addColorStop(0,'rgba(255,215,0,0.5)'); beacon.addColorStop(1,'rgba(255,215,0,0)');
+  ctx.fillStyle = beacon; ctx.fillRect(bX-14,bY-14,28,28);
+  ctx.fillStyle = 'rgba(255,215,0,0.7)';
+  ctx.beginPath(); ctx.arc(bX,bY+10,2,0,Math.PI*2); ctx.fill();
+
+  // 图例
+  drawLegend(ctx, [
+    { color:'rgba(255,200,80,0.4)', label:'航迹' },
+    { color:'#88ccff', label:'起点' },
+    { color:'#4a2010', label:'船' },
+    { color:'#ffd700', label:'里程碑' },
+    { color:'#162636', label:'迷雾' },
+  ], legendY);
+}
+
+function drawPixelShip(ctx, cx, cy, scale) {
+  const sprite = [
+    '..BBBBB....', '.BWWWWWB...', '.BMWWWMB...',
+    'BBBBBBBBBB.', 'BBGBBGBBBB.', '.BBBBBBBBB.', '..BBBBB....',
+  ];
+  const pal = { B:'#4a2010', W:'#fffff0', M:'#a06030', G:'#d4b020' };
+  const w = sprite[0].length, h = sprite.length;
+  const ox = Math.round(cx - w*scale/2);
+  const oy = Math.round(cy - h*scale/2 - 4);
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(ox-1, oy-1, w*scale+2, h*scale+2);
+  for (let py=0; py<h; py++) for (let px=0; px<sprite[py].length; px++) {
+    const ch = sprite[py][px];
+    if (pal[ch]) { ctx.fillStyle = pal[ch]; ctx.fillRect(ox+px*scale, oy+py*scale, scale, scale); }
+  }
+}
+
+// ═══════════════════════════════════════════
+// Style B: 古典航海图 —— 增强版
+// ═══════════════════════════════════════════
+
+function drawStyleB(canvas, day) {
+  const ctx = canvas.getContext('2d');
+  const ship = shipCell(day);
+  const milestones = getMilestones();
+  const trail = trailCells(day);
+  const start = shipCell(1);
+  const mapX = PAD, mapY = PAD + TITLE_H;
+  const legendY = mapY + MAP_H + PAD + 4;
+
+  // 羊皮纸
+  ctx.fillStyle = '#f0d9b5'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+  let tseed = 99;
+  function trng(){ tseed=(tseed*16807+0)%2147483647; return tseed/2147483647; }
+  const imgData = ctx.getImageData(0,0,CANVAS_W,CANVAS_H);
+  for (let i=0; i<imgData.data.length; i+=4) {
+    const n = (trng()-0.5)*9;
+    imgData.data[i]=Math.min(255,Math.max(0,imgData.data[i]+n));
+    imgData.data[i+1]=Math.min(255,Math.max(0,imgData.data[i+1]+n));
+    imgData.data[i+2]=Math.min(255,Math.max(0,imgData.data[i+2]+n));
+  }
+  ctx.putImageData(imgData,0,0);
+
+  // 标题
+  ctx.fillStyle = '#4a3020';
+  ctx.font = 'italic 10px Georgia, Times New Roman, serif';
+  ctx.textAlign='left';
+  ctx.fillText(`Day ${day} · ${Math.round(day/TOTAL_DAYS*100)}%`, PAD, PAD+10);
+
+  const rvCol = Math.round(ROUTE[Math.min(day-1,TOTAL_DAYS-1)].x);
+
+  // 海格
+  for (let r=0; r<ROWS; r++) for (let c=0; c<COLS; c++) {
+    const x=mapX+c*CELL, y=mapY+r*CELL;
+    if (c<=rvCol) {
+      const shade=0.88+(c/COLS)*0.12;
+      ctx.fillStyle = `rgb(${Math.floor(0xf0*shade)},${Math.floor(0xd9*shade+12*(1-shade))},${Math.floor(0xb5*shade)})`;
+    } else ctx.fillStyle = '#c8ad7e';
+    ctx.fillRect(x,y,CELL,CELL);
+  }
+
+  // 已航轨迹：羊皮纸上压深色墨线
+  ctx.strokeStyle = 'rgba(90,40,20,0.5)';
+  ctx.lineWidth = 2.5; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.setLineDash([4,2]);
+  ctx.beginPath();
+  trail.forEach((t,i) => {
+    const px=mapX+t.col*CELL+CELL/2, py=mapY+t.row*CELL+CELL/2;
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  });
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // 更粗的实线覆盖虚线段（清晰度提升）
+  ctx.strokeStyle = 'rgba(60,30,15,0.25)';
+  ctx.lineWidth = 1; ctx.setLineDash([]);
+  ctx.beginPath();
+  trail.forEach((t,i) => {
+    const px=mapX+t.col*CELL+CELL/2, py=mapY+t.row*CELL+CELL/2;
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  });
+  ctx.stroke();
+
+  // 经纬线
+  ctx.strokeStyle = 'rgba(80,50,30,0.2)'; ctx.lineWidth=0.4;
+  for (let r=1; r<ROWS; r++) { ctx.beginPath(); ctx.moveTo(mapX,mapY+r*CELL); ctx.lineTo(mapX+MAP_W,mapY+r*CELL); ctx.stroke(); }
+  for (let c=1; c<COLS; c++) { ctx.beginPath(); ctx.moveTo(mapX+c*CELL,mapY); ctx.lineTo(mapX+c*CELL,mapY+MAP_H); ctx.stroke(); }
+
+  // 等角航线
+  const cxM=mapX+MAP_W/2, cyM=mapY+MAP_H/2;
+  ctx.strokeStyle='rgba(120,80,40,0.1)'; ctx.lineWidth=0.3;
+  for (let a=0;a<360;a+=15) {
+    const rad=a*Math.PI/180, len=Math.max(CANVAS_W,CANVAS_H);
+    ctx.beginPath(); ctx.moveTo(cxM,cyM); ctx.lineTo(cxM+Math.cos(rad)*len,cyM+Math.sin(rad)*len); ctx.stroke();
+  }
+
+  // 罗盘
+  drawCompassRose(ctx, mapX+MAP_W-22, mapY+14, 18);
+
+  // 起点 —— 小锚标记
+  {
+    const sxP=mapX+start.col*CELL+CELL/2, syP=mapY+start.row*CELL+CELL/2;
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath(); ctx.arc(sxP,syP,6,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#4a2010'; ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.arc(sxP,syP,6,0,Math.PI*2); ctx.stroke();
+    ctx.fillStyle='#4a2010'; ctx.font='bold 8px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('起',sxP,syP);
+  }
+
+  // 里程碑
+  milestones.forEach(m => {
+    if (m.day<=day) {
+      const mx=mapX+m.col*CELL+CELL/2, my=mapY+m.row*CELL+CELL/2;
+      ctx.fillStyle='#8b4513'; ctx.font='10px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('✧',mx,my);
+    }
+  });
+
+  // 终点
+  if (day>=TOTAL_DAYS) {
+    const fx=mapX+(COLS-2)*CELL, fy=mapY+3*CELL;
+    ctx.fillStyle='#8b6914'; ctx.beginPath();
+    ctx.moveTo(fx,fy+CELL*2);
+    for (let i=0;i<20;i++) ctx.lineTo(fx+8+Math.sin(i*0.8)*8, fy+CELL*2-i*(CELL*2/20));
+    ctx.lineTo(fx+16,fy-4); ctx.lineTo(fx+CELL*1.5,fy-2); ctx.lineTo(fx,fy+CELL*2); ctx.fill();
+    ctx.fillStyle='#5a3010'; ctx.font='italic 8px serif'; ctx.textAlign='center';
+    ctx.fillText('新大陆',fx+CELL,fy-6);
+  }
+
+  // 海怪装饰
+  if (day<150&&day<TOTAL_DAYS-1) {
+    const monX=mapX+(rvCol+3)*CELL, monY=mapY+(ROWS-2)*CELL;
+    ctx.fillStyle='#6a4030'; ctx.font='12px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('~',monX,monY);  // 用波浪号代替 emoji，兼容性更好
+  }
+
+  // 迷雾
+  const fogX=mapX+(rvCol+1)*CELL;
+  const fogGrad=ctx.createLinearGradient(fogX-CELL,0,fogX+CELL*2,0);
+  fogGrad.addColorStop(0,'rgba(240,217,181,0)'); fogGrad.addColorStop(1,'rgba(200,173,126,0.7)');
+  ctx.fillStyle=fogGrad; ctx.fillRect(fogX-CELL,mapY,CELL*3,MAP_H);
+
+  // 船
+  drawClassicShip(ctx, mapX+ship.col*CELL+CELL/2, mapY+ship.row*CELL+CELL/2);
+
+  // 边框
+  ctx.strokeStyle='#5a3820'; ctx.lineWidth=2; ctx.strokeRect(mapX-3,mapY-3,MAP_W+6,MAP_H+6);
+  ctx.strokeStyle='#5a3820'; ctx.lineWidth=0.5; ctx.strokeRect(mapX-6,mapY-6,MAP_W+12,MAP_H+12);
+
+  // 图例
+  drawLegend(ctx, [
+    { color:'rgba(90,40,20,0.45)', label:'航迹' },
+    { color:'#4a2010', label:'起点' },
+    { color:'#3a2010', label:'船' },
+    { color:'#8b4513', label:'里程碑' },
+    { color:'#c8ad7e', label:'迷雾' },
+  ], legendY);
+}
+
+function drawCompassRose(ctx, cx, cy, r) {
+  ctx.save(); ctx.translate(cx,cy);
+  ctx.strokeStyle='#5a3820'; ctx.lineWidth=0.5; ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.stroke();
+  const dirs=[{a:0,l:'N',L:1},{a:0.5,l:'',L:0.6},{a:1,l:'E',L:1},{a:1.5,l:'',L:0.6},{a:2,l:'S',L:1},{a:2.5,l:'',L:0.6},{a:3,l:'W',L:1},{a:3.5,l:'',L:0.6}];
+  dirs.forEach(d=>{
+    const ang=d.a*Math.PI;
+    ctx.strokeStyle=d.L===1?'#5a3820':'rgba(90,56,32,0.4)'; ctx.lineWidth=d.L===1?0.8:0.3;
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.sin(ang)*r*d.L*0.85,-Math.cos(ang)*r*d.L*0.85); ctx.stroke();
+    if(d.l){ctx.fillStyle='#4a2010'; ctx.font='bold 7px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(d.l,Math.sin(ang)*r*0.95,-Math.cos(ang)*r*0.95);}
+  });
+  ctx.fillStyle='#5a3820'; ctx.beginPath(); ctx.arc(0,0,1.5,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawClassicShip(ctx, cx, cy) {
+  ctx.fillStyle='#3a2010'; ctx.beginPath();
+  ctx.moveTo(cx-7,cy+3); ctx.quadraticCurveTo(cx-6,cy+6,cx-1,cy+6);
+  ctx.lineTo(cx+5,cy+6); ctx.lineTo(cx+7,cy+2);
+  ctx.quadraticCurveTo(cx+2,cy-1,cx-7,cy+3); ctx.fill();
+  ctx.fillStyle='#f5e6cc'; ctx.beginPath();
+  ctx.moveTo(cx-1,cy-2); ctx.lineTo(cx-1,cy-9); ctx.lineTo(cx+4,cy-9); ctx.lineTo(cx+4,cy-1); ctx.fill();
+  ctx.strokeStyle='#3a2010'; ctx.lineWidth=0.8; ctx.beginPath(); ctx.moveTo(cx,cy-1); ctx.lineTo(cx,cy-11); ctx.stroke();
+  ctx.fillStyle='#8b2500'; ctx.beginPath(); ctx.moveTo(cx,cy-11); ctx.lineTo(cx+3,cy-13); ctx.lineTo(cx,cy-9); ctx.fill();
+}
+
+// ═══════════════════════════════════════════
+// Style C: 极简暗色 —— 增强版
+// ═══════════════════════════════════════════
+
+function drawStyleC(canvas, day) {
+  const ctx = canvas.getContext('2d');
+  const milestones = getMilestones();
+  const trail = trailCells(day);
+  const start = shipCell(1);
+  const mapX = PAD, mapY = PAD + TITLE_H + 6;
+  const legendY = mapY + (MAP_H - 24) + PAD + 4;
+  const progress = day / TOTAL_DAYS;
+
+  // 纯黑底
+  ctx.fillStyle = '#06080c'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+
+  // 标题 + 进度
+  ctx.fillStyle = '#4a5568'; ctx.font = '10px -apple-system, sans-serif'; ctx.textAlign='left';
+  ctx.fillText(`DAY ${day} / ${TOTAL_DAYS}`, PAD, PAD + 9);
+
+  // 进度条
+  const barY = mapY - 10, barW = MAP_W;
+  ctx.fillStyle = '#1a1a24'; ctx.fillRect(PAD, barY, barW, 1.5);
+  const barGrad = ctx.createLinearGradient(PAD,0,PAD+barW,0);
+  barGrad.addColorStop(0,'#e06c75'); barGrad.addColorStop(0.5,'#d19a66'); barGrad.addColorStop(1,'#61afef');
+  ctx.fillStyle = barGrad; ctx.fillRect(PAD, barY, barW*progress, 1.5);
+
+  // 全航线虚线
+  ctx.strokeStyle = 'rgba(40,45,58,0.4)'; ctx.lineWidth = 0.5;
+  ctx.setLineDash([2,5]);
+  ctx.beginPath();
+  for (let i=0; i<ROUTE.length; i++) {
+    const px=mapX+(ROUTE[i].x/(COLS-1))*MAP_W;
+    const py=mapY+(ROUTE[i].y/ROWS)*(MAP_H-24);
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  }
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // 已走航线 — 宽发光
+  const walkedGrad = ctx.createLinearGradient(mapX,0,mapX+MAP_W,0);
+  walkedGrad.addColorStop(0,'#e06c75'); walkedGrad.addColorStop(0.4,'#d19a66'); walkedGrad.addColorStop(0.8,'#61afef'); walkedGrad.addColorStop(1,'#98c379');
+  ctx.strokeStyle = walkedGrad; ctx.lineWidth = 2.5; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.shadowColor = 'rgba(120,200,255,0.5)'; ctx.shadowBlur = 5;
+  ctx.beginPath();
+  for (let i=0; i<day; i++) {
+    const px=mapX+(ROUTE[i].x/(COLS-1))*MAP_W;
+    const py=mapY+(ROUTE[i].y/ROWS)*(MAP_H-24);
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  }
+  ctx.stroke(); ctx.shadowBlur = 0;
+
+  // 起点 — 实心圆+光环
+  {
+    const sxs=mapX+(ROUTE[0].x/(COLS-1))*MAP_W;
+    const sys=mapY+(ROUTE[0].y/ROWS)*(MAP_H-24);
+    const sg=ctx.createRadialGradient(sxs,sys,0,sxs,sys,10);
+    sg.addColorStop(0,'rgba(255,255,255,0.7)'); sg.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=sg; ctx.fillRect(sxs-12,sys-12,24,24);
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(sxs,sys,4,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#8aa0b8'; ctx.font='8px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('起',sxs,sys-10);
+  }
+
+  // 里程碑
+  milestones.forEach(m => {
+    if (m.day<=day) {
+      const mx=mapX+(m.col/(COLS-1))*MAP_W;
+      const my=mapY+(m.row/ROWS)*(MAP_H-24);
+      const mg=ctx.createRadialGradient(mx,my,1,mx,my,10);
+      mg.addColorStop(0,'rgba(255,215,0,0.8)'); mg.addColorStop(1,'rgba(255,215,0,0)');
+      ctx.fillStyle=mg; ctx.fillRect(mx-12,my-12,24,24);
+      ctx.fillStyle='#ffd700'; ctx.beginPath(); ctx.arc(mx,my,3,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#666'; ctx.font='8px sans-serif'; ctx.textAlign='center';
+      ctx.fillText(m.label,mx,my-9);
+    }
+  });
+
+  // 终点
+  if (day>=TOTAL_DAYS) {
+    const fx=mapX+MAP_W, fy=mapY+(ROUTE[TOTAL_DAYS-1].y/ROWS)*(MAP_H-24);
+    const eg=ctx.createRadialGradient(fx,fy,1,fx,fy,18);
+    eg.addColorStop(0,'rgba(152,195,121,1)'); eg.addColorStop(0.4,'rgba(152,195,121,0.4)');
+    eg.addColorStop(1,'rgba(152,195,121,0)');
+    ctx.fillStyle=eg; ctx.fillRect(fx-20,fy-20,40,40);
+    ctx.fillStyle='#98c379'; ctx.beginPath(); ctx.arc(fx,fy,5,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#888'; ctx.font='8px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('终',fx,fy-12);
+  }
+
+  // 船
+  const sp=ROUTE[Math.min(day-1,TOTAL_DAYS-1)];
+  const sx=mapX+(sp.x/(COLS-1))*MAP_W, sy=mapY+(sp.y/ROWS)*(MAP_H-24);
+  const sg=ctx.createRadialGradient(sx,sy,0,sx,sy,14);
+  sg.addColorStop(0,'rgba(255,255,255,0.9)'); sg.addColorStop(0.5,'rgba(120,200,255,0.25)');
+  sg.addColorStop(1,'rgba(120,200,255,0)');
+  ctx.fillStyle=sg; ctx.fillRect(sx-16,sy-16,32,32);
+  ctx.fillStyle='#fff'; ctx.beginPath();
+  ctx.moveTo(sx,sy-8); ctx.lineTo(sx-5,sy+5); ctx.lineTo(sx+5,sy+5); ctx.closePath(); ctx.fill();
+
+  // 百分比
+  ctx.fillStyle='#4a5568'; ctx.font='9px sans-serif'; ctx.textAlign='right';
+  ctx.fillText(`${Math.round(progress*100)}%`, CANVAS_W-PAD, CANVAS_H-PAD+4);
+
+  // 图例
+  drawLegend(ctx, [
+    { color:'#fff', label:'起点' },
+    { color:'#ffd700', label:'里程碑' },
+    { color:'#98c379', label:'终点' },
+    { color:'#e06c75', label:'后期' },
+    { color:'#61afef', label:'前期' },
+  ], legendY);
+}
+
+// ═══════════════════════════════════════════
+// Style D: 深蓝海洋 —— 增强版
+// ═══════════════════════════════════════════
+
+function drawStyleD(canvas, day) {
+  const ctx = canvas.getContext('2d');
+  const ship = shipCell(day);
+  const milestones = getMilestones();
+  const trail = trailCells(day);
+  const start = shipCell(1);
+  const mapX = PAD, mapY = PAD + TITLE_H;
+  const legendY = mapY + MAP_H + PAD + 4;
+
+  // 星空渐变背景
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+  bgGrad.addColorStop(0, '#0a1628'); bgGrad.addColorStop(0.3, '#0d1f3c');
+  bgGrad.addColorStop(0.7, '#0a2844'); bgGrad.addColorStop(1, '#061220');
+  ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // 星星
+  let sseed = 1337;
+  function srng() { sseed=(sseed*16807+0)%2147483647; return sseed/2147483647; }
+  for (let i=0;i<50;i++) {
+    const sx=srng()*CANVAS_W, sy=srng()*(PAD+TITLE_H+4);
+    ctx.fillStyle=`rgba(255,255,255,${0.1+srng()*0.5})`;
+    ctx.fillRect(sx, sy, 0.8+srng(), 0.8+srng());
+  }
+
+  // 标题
+  ctx.fillStyle = 'rgba(150,200,230,0.8)';
+  ctx.font = '10px -apple-system, sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(`DAY ${day} · ${Math.round(day/TOTAL_DAYS*100)}%`, PAD, PAD+10);
+
+  // 海洋格子
+  let cseed = 42;
+  function crng(){ cseed=(cseed*16807+0)%2147483647; return cseed/2147483647; }
+  const oceanBase = [{r:10,g:40,b:60},{r:8,g:48,b:72},{r:12,g:36,b:56},{r:14,g:44,b:64},{r:9,g:42,b:62}];
+  const rvCol = Math.round(ROUTE[Math.min(day-1,TOTAL_DAYS-1)].x);
+
+  for (let r=0; r<ROWS; r++) for (let c=0; c<COLS; c++) {
+    const x=mapX+c*CELL, y=mapY+r*CELL;
+    if (c<=rvCol) {
+      const base=oceanBase[Math.floor(crng()*oceanBase.length)];
+      const v=0.85+crng()*0.3;
+      ctx.fillStyle=`rgb(${Math.floor(base.r*v)},${Math.floor(base.g*v)},${Math.floor(base.b*v)})`;
+    } else ctx.fillStyle='#0b1a2a';
+    ctx.fillRect(x,y,CELL,CELL);
+    if (c<=rvCol&&crng()>0.72) {
+      ctx.strokeStyle='rgba(255,255,255,0.015)'; ctx.lineWidth=0.3;
+      ctx.beginPath(); ctx.moveTo(x+2,y+CELL*0.4);
+      ctx.quadraticCurveTo(x+CELL/2,y+CELL*0.25,x+CELL-2,y+CELL*0.4); ctx.stroke();
+    }
+  }
+
+  // 航迹格子叠加
+  trail.forEach(t => {
+    if (t.col <= rvCol) {
+      const x=mapX+t.col*CELL, y=mapY+t.row*CELL;
+      ctx.fillStyle='rgba(100,200,220,0.1)'; ctx.fillRect(x+1,y+1,CELL-2,CELL-2);
+    }
+  });
+
+  // 荧光航迹线
+  ctx.strokeStyle='rgba(100,200,220,0.3)'; ctx.lineWidth=2.5; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.shadowColor='rgba(100,200,220,0.4)'; ctx.shadowBlur=5;
+  ctx.beginPath();
+  trail.forEach((t,i)=>{
+    const px=mapX+t.col*CELL+CELL/2, py=mapY+t.row*CELL+CELL/2;
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  });
+  ctx.stroke(); ctx.shadowBlur=0;
+
+  // 网格（极淡）
+  ctx.strokeStyle='rgba(20,50,70,0.15)'; ctx.lineWidth=0.3;
+  for (let r=0;r<=ROWS;r++){ctx.beginPath();ctx.moveTo(mapX,mapY+r*CELL);ctx.lineTo(mapX+MAP_W,mapY+r*CELL);ctx.stroke();}
+  for (let c=0;c<=COLS;c++){ctx.beginPath();ctx.moveTo(mapX+c*CELL,mapY);ctx.lineTo(mapX+c*CELL,mapY+MAP_H);ctx.stroke();}
+
+  // 起点
+  {
+    const sxs=mapX+start.col*CELL+CELL/2, sys=mapY+start.row*CELL+CELL/2;
+    const sg=ctx.createRadialGradient(sxs,sys,2,sxs,sys,9);
+    sg.addColorStop(0,'rgba(136,204,255,0.6)'); sg.addColorStop(1,'rgba(136,204,255,0)');
+    ctx.fillStyle=sg; ctx.fillRect(sxs-10,sys-10,20,20);
+    ctx.strokeStyle='#88ccff'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(sxs,sys,6,0,Math.PI*2); ctx.stroke();
+    ctx.fillStyle='#88ccff'; ctx.font='bold 9px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('起',sxs,sys);
+  }
+
+  // 里程碑
+  milestones.forEach(m=>{
+    if(m.day<=day){
+      const mx=mapX+m.col*CELL+CELL/2, my=mapY+m.row*CELL+CELL/2;
+      const sg=ctx.createRadialGradient(mx,my,1,mx,my,11);
+      sg.addColorStop(0,'rgba(255,215,0,0.7)'); sg.addColorStop(1,'rgba(255,215,0,0)');
+      ctx.fillStyle=sg; ctx.fillRect(mx-12,my-12,24,24);
+      ctx.fillStyle='#ffd700'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('✦',mx,my);
+    }
+  });
+
+  // 终点
+  if(day>=TOTAL_DAYS){
+    const fx=mapX+(COLS-2)*CELL+CELL/2, fy=mapY+4*CELL+CELL/2;
+    const eg=ctx.createRadialGradient(fx,fy,2,fx,fy,CELL*2.5);
+    eg.addColorStop(0,'rgba(255,215,0,0.5)'); eg.addColorStop(1,'rgba(255,215,0,0)');
+    ctx.fillStyle=eg; ctx.fillRect(fx-CELL*3,fy-CELL*3,CELL*6,CELL*6);
+    ctx.fillStyle='#ffd700'; ctx.font='18px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('★',fx,fy);
+  }
+
+  // 迷雾
+  const fogX=mapX+(rvCol+1)*CELL;
+  const fg=ctx.createLinearGradient(fogX-CELL,0,fogX+CELL*2,0);
+  fg.addColorStop(0,'rgba(6,18,32,0)'); fg.addColorStop(0.6,'rgba(6,18,32,0.4)'); fg.addColorStop(1,'rgba(6,18,32,0.8)');
+  ctx.fillStyle=fg; ctx.fillRect(fogX-CELL,mapY,CELL*3,MAP_H);
+
+  // 船 + 光晕
+  const shX=mapX+ship.col*CELL+CELL/2, shY=mapY+ship.row*CELL+CELL/2;
+  const breath=ctx.createRadialGradient(shX,shY-4,4,shX,shY-4,22);
+  breath.addColorStop(0,'rgba(255,200,100,0.3)'); breath.addColorStop(0.5,'rgba(255,180,60,0.1)');
+  breath.addColorStop(1,'rgba(255,180,60,0)');
+  ctx.fillStyle=breath; ctx.fillRect(shX-24,shY-24,48,48);
+  drawPixelShip(ctx,shX,shY,2);
+  ctx.fillStyle='rgba(255,200,100,0.06)'; ctx.fillRect(shX-8,shY+12,16,4);
+
+  // 图例
+  drawLegend(ctx, [
+    { color:'rgba(100,200,220,0.3)', label:'航迹' },
+    { color:'#88ccff', label:'起点' },
+    { color:'#4a2010', label:'船' },
+    { color:'#ffd700', label:'里程碑' },
+    { color:'#0b1a2a', label:'迷雾' },
+  ], legendY);
+}
+
+// ═══════════════════════════════════════════
+// 布局与渲染
+// ═══════════════════════════════════════════
+
+const STYLE_DEFS = [
+  {
+    id:'pixel', name:'A · 像素复古',
+    desc:'暗色海洋 + 像素帆船 + 金色航迹线 + 起点/里程碑标记 + 迷雾渐变',
+    render:drawStyleA,
+    notes:[
+      ['pro','+ 终端原生友好，现有 ASCII 回退直接延续'],
+      ['pro','+ 像素船精灵辨识度高，复古游戏感'],
+      ['pro','+ 已航行格子高亮 + 航迹线，轨迹清晰'],
+      ['con','− 50×14 格在窄终端下拥挤'],
+    ]
+  },
+  {
+    id:'parchment', name:'B · 古典航海图',
+    desc:'羊皮纸纹理 + 罗盘玫瑰 + 等角航线 + 墨线航迹 + 古典边框',
+    render:drawStyleB,
+    notes:[
+      ['pro','+ "航海"主题感最强，收藏品质感'],
+      ['pro','+ 羊皮纸底色在暗色终端中反而醒目'],
+      ['pro','+ 虚线墨线航迹 + 实线叠加，古典地图风格'],
+      ['con','− 实现复杂度高（纹理、Rhumb线、边框）'],
+      ['con','− PNG 渲染器需要模拟纹理效果'],
+    ]
+  },
+  {
+    id:'minimal', name:'C · 极简暗色',
+    desc:'纯黑底 + 发光彩色航迹 + 进度条 + 起点/里程碑光点 + 百分比',
+    render:drawStyleC,
+    notes:[
+      ['pro','+ 终端实现最简单 — 纯字符 + ANSI 颜色即可'],
+      ['pro','+ 进度感一目了然，数据导向，冷峻专业'],
+      ['pro','+ 航迹清晰，彩色渐变区分前后期'],
+      ['con','− "航海图"探险感最弱'],
+      ['con','− 缺少地图空间探索感，更像仪表盘'],
+    ]
+  },
+  {
+    id:'deepocean', name:'D · 深蓝海洋',
+    desc:'星空渐变 + 深海格子 + 荧光航迹 + 呼吸光晕 + 水面倒影',
+    render:drawStyleD,
+    notes:[
+      ['pro','+ 氛围感最强，沉浸式海洋体验'],
+      ['pro','+ 深色底适配暗色终端，不突兀'],
+      ['pro','+ 荧光航迹 + 星光，视觉层次丰富'],
+      ['con','− 暗色调下颜色层次区分度不够'],
+      ['con','− 渐变和光晕终端实现需 Canvas PNG'],
+    ]
+  },
+];
+
+function buildLayout() {
+  const sectionsEl = document.getElementById('sections');
+  STYLE_DEFS.forEach((style, si) => {
+    const section = document.createElement('div');
+    section.className = 'style-section' + (si===0?' active':'');
+    section.id = 'style-'+si;
+    section.innerHTML = `
+      <div class="style-header">
+        <h2>${style.name}</h2>
+        <p class="desc">${style.desc}</p>
+      </div>
+      <div class="stage-grid" id="grid-${si}"></div>
+      <div class="style-notes">
+        ${style.notes.map(([c,t])=>`<span class="${c}">${t}</span>`).join('')}
+      </div>`;
+    sectionsEl.appendChild(section);
+
+    const grid = section.querySelector('.stage-grid');
+    STAGES.forEach((stage, gi) => {
+      const card = document.createElement('div');
+      card.className = 'stage-card';
+      card.innerHTML = `<h3>${stage.name}</h3><div class="day-label">${stage.label}</div>`;
+      const canvas = document.createElement('canvas');
+      canvas.width = CANVAS_W; canvas.height = CANVAS_H;
+      canvas.id = `c-${si}-${gi}`;
+      card.appendChild(canvas); grid.appendChild(card);
+    });
+  });
+
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      document.querySelectorAll('.style-section').forEach(s=>s.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('style-'+tab.dataset.style).classList.add('active');
+      const si = parseInt(tab.dataset.style);
+      STAGES.forEach((stage,gi)=>{
+        const c=document.getElementById(`c-${si}-${gi}`);
+        if(c) STYLE_DEFS[si].render(c, stage.day);
+      });
+    });
+  });
+}
+
+function renderAll() {
+  STYLE_DEFS.forEach((style,si)=>{
+    STAGES.forEach((stage,gi)=>{
+      const c=document.getElementById(`c-${si}-${gi}`);
+      if(c) style.render(c, stage.day);
+    });
+  });
+}
+
+buildLayout(); renderAll();
+</script>
+</body>
+</html>

@@ -3,6 +3,10 @@
 Consumes the render data dict from ``MapEngine.build_render_data()``
 and produces a Rich-markup string.  This is the portable fallback
 renderer that works in every terminal.
+
+v2 improvements:
+- Start marker (◉) at route[0]
+- Legend row at bottom
 """
 
 from bestman.renderers.base import BaseRenderer
@@ -20,23 +24,30 @@ class AsciiRenderer(BaseRenderer):
 
         Args:
             data: dict from ``MapEngine.build_render_data()`` with
-                  ``grid``, ``sway_offset``, ``today_advance``, etc.
+                  ``grid``, ``ship_pos``, ``route``, etc.
             theme: Theme instance (unused in ASCII; kept for interface).
             vessel_def: VesselDef or None (unused in ASCII).
 
         Returns:
-            str: Rich markup string with styled grid cells, one line per row.
+            str: Rich markup string with styled grid cells + legend.
         """
         grid = data["grid"]
+        route = data.get("route", [])
+        start_pos = route[0] if route else None
+
         lines = []
-        for row in grid:
+        for y, row in enumerate(grid):
             parts = []
-            for cell in row:
+            for x, cell in enumerate(row):
                 status = cell["status"]
                 char = cell["terrain_char"]
                 color = cell.get("terrain_color", "blue")
 
-                if cell["has_finish"]:
+                # Start marker (overrides fog status for day-1 cell)
+                if start_pos and (x, y) == start_pos and not cell["has_ship"]:
+                    style = "bold cyan"
+                    char = "\u25c9"  # ◉
+                elif cell["has_finish"]:
                     style = "bold green"
                 elif cell["has_ship"]:
                     style = "bold yellow"
