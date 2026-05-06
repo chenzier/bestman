@@ -358,6 +358,167 @@ def config_dice_mode(mode):
         console.print(f"当前骰子模式：[bold cyan]{mode_names.get(current, current)}[/bold cyan]（{current}）")
 
 
+@config.command("theme")
+@click.argument("theme_name", required=False)
+def config_theme(theme_name):
+    """查看或设置主题。
+
+    bestman config theme              # 查看当前主题和可用主题
+    bestman config theme cultivation  # 切换到田园主题
+    """
+    from bestman.themes import list_themes, get_theme
+
+    cfg = load_config()
+    current_theme = cfg.get("voyage", {}).get("theme", "naval")
+
+    if theme_name:
+        # Validate that the theme exists
+        available_themes = list_themes()
+
+        if theme_name not in available_themes:
+            console.print(f"[red]未知主题：{theme_name}[/red]")
+            console.print(f"[dim]可用主题：{', '.join(available_themes)}[/dim]")
+            return
+
+        # Get current vessel in case we need to handle compatibility
+        current_vessel = cfg.get("profile", {}).get("vessel", "schooner")
+
+        # Load the new theme to check if current vessel exists in it
+        new_theme = get_theme(theme_name)
+
+        # If current vessel doesn't exist in new theme, switch to default vessel
+        if current_vessel not in new_theme.vessels:
+            # Find a suitable default vessel in the new theme
+            if new_theme.vessels:
+                default_vessel = next(iter(new_theme.vessels.keys()))
+                cfg.setdefault("profile", {})["vessel"] = default_vessel
+                console.print(f"[yellow]载具不兼容，已自动切换为 {new_theme.vessels[default_vessel].icon} {new_theme.vessels[default_vessel].name}[/yellow]")
+            else:
+                # No vessels in theme, use default
+                cfg.setdefault("profile", {})["vessel"] = "schooner"
+
+        # Update theme
+        cfg.setdefault("voyage", {})["theme"] = theme_name
+        save_config(cfg)
+        console.print(f"[green]✓ 主题已切换为：{theme_name}[/green]")
+    else:
+        # Show current theme and available themes
+        available_themes = list_themes()
+        console.print(f"当前主题：[bold cyan]{current_theme}[/bold cyan]")
+        console.print("可用主题：")
+        for theme in available_themes:
+            marker = "[bold yellow]●[/bold yellow]" if theme == current_theme else " "
+            console.print(f"  {marker} [cyan]{theme}[/cyan]")
+
+
+@config.command("vessel")
+@click.argument("vessel_id", required=False)
+def config_vessel(vessel_id):
+    """查看或设置载具。
+
+    bestman config vessel        # 查看当前载具和可用载具
+    bestman config vessel sword  # 切换到剑客号载具
+    """
+    from bestman.core.voyage import Voyage
+    from bestman.themes import get_theme
+    voyage = Voyage()
+    current_vessel = voyage.current_vessel
+    theme = voyage.theme
+
+    owned = set(voyage.config.get("profile", {}).get("vessel_owned", ["schooner"]))
+
+    if vessel_id:
+        if vessel_id not in theme.vessels:
+            available = ", ".join(theme.vessels.keys())
+            console.print(f"[red]未知载具：{vessel_id}[/red]")
+            console.print(f"[dim]可用载具：{available}[/dim]")
+            return
+
+        if vessel_id not in owned:
+            vdef = theme.vessels[vessel_id]
+            console.print(f"[yellow]你尚未拥有 {vdef.icon} {vdef.name}。[/yellow]")
+            console.print(f"[dim]需要 {vdef.price} 金币购买。[/dim]")
+            return
+
+        cfg = load_config()
+        cfg.setdefault("profile", {})["vessel"] = vessel_id
+        save_config(cfg)
+
+        vdef = theme.vessels[vessel_id]
+        console.print(f"[green]✓ 载具已切换为 {vdef.icon} {vdef.name}[/green]")
+        console.print("[dim]运行 [bold green]bestman[/bold green] 查看仪表盘。[/dim]")
+        console.print()
+    else:
+        # Show current vessel and available vessels in current theme
+        console.print(f"当前主题：[bold cyan]{theme.name}[/bold cyan]")
+        console.print()
+
+        if not theme.vessels:
+            console.print("[dim]当前主题没有可用载具。[/dim]")
+            console.print()
+            return
+
+        for vid, vdef in theme.vessels.items():
+            is_current = vid == current_vessel
+            is_owned = vid in owned
+            marker = "[bold yellow]●[/bold yellow]" if is_current else " "
+            icon = vdef.icon
+            name = vdef.name
+            if is_current:
+                status = "[bold green]（当前）[/bold green]"
+            elif not is_owned and vdef.price > 0:
+                status = f"[dim]（{vdef.price} 金币）[/dim]"
+            else:
+                status = "[dim]（已拥有）[/dim]"
+            console.print(f"  {marker} {icon}  [bold cyan]{name}[/bold cyan]  {status}")
+
+        current_def = theme.vessels.get(current_vessel)
+        current_name = current_def.name if current_def else "?"
+        current_icon = current_def.icon if current_def else "?"
+        console.print()
+        console.print(f"[dim]当前载具：[bold]{current_icon} {current_name}[/bold][/dim]")
+        console.print("[dim]切换载具：[bold green]bestman config vessel <ID>[/bold green][/dim]")
+        console.print()
+
+
+@config.command("show")
+def config_show():
+    """显示当前配置。
+    """
+    from bestman.core.voyage import Voyage
+
+    cfg = load_config()
+
+    console.print()
+    console.print("[bold cyan]当前配置[/bold cyan]")
+    console.print("=" * 30)
+
+    # Show theme
+    theme_name = cfg.get("voyage", {}).get("theme", "naval")
+    console.print(f"主题：[bold]{theme_name}[/bold]")
+
+    # Show vessel
+    vessel_id = cfg.get("profile", {}).get("vessel", "schooner")
+    voyage = Voyage()
+    theme = voyage.theme
+    vessel_def = theme.vessels.get(vessel_id)
+    if vessel_def:
+        console.print(f"载具：[bold]{vessel_def.icon} {vessel_def.name}[/bold] ({vessel_id})")
+    else:
+        console.print(f"载具：[bold]{vessel_id}[/bold]")
+
+    # Show dice mode
+    dice_mode = cfg.get("dice", {}).get("mode", "deterministic")
+    mode_names = {"deterministic": "确定性", "interactive": "互动"}
+    console.print(f"骰子模式：[bold]{mode_names.get(dice_mode, dice_mode)} ({dice_mode})[/bold]")
+
+    # Show owned vessels
+    owned = cfg.get("profile", {}).get("vessel_owned", ["schooner"])
+    console.print(f"已拥有载具：[bold]{', '.join(owned)}[/bold]")
+
+    console.print()
+
+
 @main.group()
 def plan():
     """管理健身计划。
