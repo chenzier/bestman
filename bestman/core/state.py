@@ -3,11 +3,13 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
+from bestman.core.config import BESTMAN_HOME
+
 
 class BestmanState:
     def __init__(self, db_path=None):
         if db_path is None:
-            db_path = Path.home() / ".bestman" / "bestman.db"
+            db_path = BESTMAN_HOME / "bestman.db"
         self.db_path = str(db_path)
         self.conn = sqlite3.connect(self.db_path)
         self.conn.execute("PRAGMA journal_mode=WAL")

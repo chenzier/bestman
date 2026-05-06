@@ -6,3 +6,9 @@ __pycache__/
 dist/
 .worktrees/
 .claude/worktrees/
+
+# Demo / design iteration artifacts
+demo_maps/
+design-sketches.html
+demo_cli.py
+demo_terminal.py

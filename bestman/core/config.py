@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-BESTMAN_HOME = Path.home() / ".bestman"
+BESTMAN_HOME = Path(os.environ.get("BESTMAN_HOME", Path.home() / ".bestman"))
 PLAN_PATH = BESTMAN_HOME / "plan.yaml"
 
 DEFAULT_CONFIG = {
