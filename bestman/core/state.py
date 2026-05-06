@@ -16,7 +16,7 @@ class BestmanState:
         self._init_tables()
         self._migrate()
 
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 6
 
     def _init_tables(self):
         self.conn.execute("""
@@ -120,6 +120,85 @@ class BestmanState:
                     active INTEGER DEFAULT 1
                 )
             """)
+
+        # ── v2.2: crew tables ──────────────────────────────────
+        # v2.2: crew — 已招募船员
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='crew'"
+        )
+        if not cursor.fetchone():
+            self.conn.execute("""
+                CREATE TABLE crew (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    role_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    rarity TEXT NOT NULL DEFAULT 'common',
+                    level INTEGER NOT NULL DEFAULT 1,
+                    xp INTEGER NOT NULL DEFAULT 0,
+                    mood INTEGER NOT NULL DEFAULT 70,
+                    hired_date TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    is_main INTEGER NOT NULL DEFAULT 0,
+                    skill_cooldown_until TEXT,
+                    recalled_from TEXT
+                )
+            """)
+
+        # v2.2: crew_dialogues — 对话历史
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='crew_dialogues'"
+        )
+        if not cursor.fetchone():
+            self.conn.execute("""
+                CREATE TABLE crew_dialogues (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    crew_id INTEGER NOT NULL,
+                    date TEXT NOT NULL,
+                    trigger_type TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    user_reply TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY (crew_id) REFERENCES crew(id)
+                )
+            """)
+
+        # v2.2: crew_quests — 每周任务
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='crew_quests'"
+        )
+        if not cursor.fetchone():
+            self.conn.execute("""
+                CREATE TABLE crew_quests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    crew_id INTEGER NOT NULL,
+                    week_start_date TEXT NOT NULL,
+                    quest_type TEXT NOT NULL,
+                    progress INTEGER NOT NULL DEFAULT 0,
+                    target INTEGER NOT NULL DEFAULT 1,
+                    completed INTEGER NOT NULL DEFAULT 0,
+                    reward_claimed INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY (crew_id) REFERENCES crew(id)
+                )
+            """)
+
+        # v2.2: crew_recruit_history — 招募历史（用于保底机制）
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='crew_recruit_history'"
+        )
+        if not cursor.fetchone():
+            self.conn.execute("""
+                CREATE TABLE crew_recruit_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date TEXT NOT NULL,
+                    role_id TEXT,
+                    rarity TEXT NOT NULL,
+                    method TEXT NOT NULL DEFAULT 'random',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+
+    # ── 基础数据操作（不变）────────────────────────────────────
 
     def record_day(self, day, completed=1, extra=0, task_done="", used_skip=0, coins_earned=0):
         self.conn.execute(
@@ -249,6 +328,10 @@ class BestmanState:
         self.conn.execute("DELETE FROM treasures")
         self.conn.execute("DELETE FROM weights")
         self.conn.execute("DELETE FROM plan_overrides")
+        self.conn.execute("DELETE FROM crew")
+        self.conn.execute("DELETE FROM crew_dialogues")
+        self.conn.execute("DELETE FROM crew_quests")
+        self.conn.execute("DELETE FROM crew_recruit_history")
         self.conn.commit()
 
     def get_total_coins(self):
@@ -440,6 +523,460 @@ class BestmanState:
             "UPDATE plan_overrides SET active = 0 WHERE id = ?", (override_id,)
         )
         self.conn.commit()
+
+    # ── v2.2: 船员管理方法 ────────────────────────────────────
+
+    def hire_crew(self, role_id, name, rarity, hired_date):
+        """招募一名船员。
+
+        Args:
+            role_id: 角色 ID（如 "captain"）
+            name: 角色名称
+            rarity: 稀有度
+            hired_date: 招募日期
+
+        Returns:
+            int: 新船员的 id
+        """
+        # 检查是否已拥有该角色
+        existing = self.conn.execute(
+            "SELECT id FROM crew WHERE role_id=? AND active=1", (role_id,)
+        ).fetchone()
+        if existing:
+            return None
+
+        self.conn.execute(
+            "INSERT INTO crew (role_id, name, rarity, mood, hired_date) VALUES (?, ?, ?, 70, ?)",
+            (role_id, name, rarity, hired_date),
+        )
+        self.conn.commit()
+        return self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    def fire_crew(self, crew_id):
+        """解雇船员（标记为 inactive）。
+
+        Args:
+            crew_id: 船员 id
+
+        Returns:
+            dict | None: 被解雇船员信息，含 role_id 和 rarity
+        """
+        cursor = self.conn.execute(
+            "SELECT role_id, rarity FROM crew WHERE id=? AND active=1", (crew_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        self.conn.execute(
+            "UPDATE crew SET active=0, recalled_from=NULL WHERE id=?", (crew_id,)
+        )
+        self.conn.commit()
+        return {"role_id": row[0], "rarity": row[1]}
+
+    def recall_crew(self, crew_id, recall_date):
+        """召回曾被解雇的船员。
+
+        Args:
+            crew_id: 船员 id
+            recall_date: 召回日期
+
+        Returns:
+            bool: 是否召回成功
+        """
+        cursor = self.conn.execute(
+            "SELECT id FROM crew WHERE id=? AND active=0", (crew_id,)
+        )
+        if not cursor.fetchone():
+            return False
+
+        self.conn.execute(
+            "UPDATE crew SET active=1, recalled_from=? WHERE id=?",
+            (recall_date, crew_id),
+        )
+        self.conn.commit()
+        return True
+
+    def get_crew(self, crew_id):
+        """获取单个船员信息。
+
+        Returns:
+            dict | None
+        """
+        cursor = self.conn.execute(
+            "SELECT id, role_id, name, rarity, level, xp, mood, hired_date, "
+            "active, is_main, skill_cooldown_until "
+            "FROM crew WHERE id=?",
+            (crew_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "role_id": row[1], "name": row[2], "rarity": row[3],
+            "level": row[4], "xp": row[5], "mood": row[6], "hired_date": row[7],
+            "active": bool(row[8]), "is_main": bool(row[9]),
+            "skill_cooldown_until": row[10],
+        }
+
+    def list_crew(self, active_only=True):
+        """列出船员。
+
+        Args:
+            active_only: 仅返回在船船员
+
+        Returns:
+            list[dict]
+        """
+        if active_only:
+            rows = self.conn.execute(
+                "SELECT id, role_id, name, rarity, level, xp, mood, hired_date, "
+                "is_main, skill_cooldown_until "
+                "FROM crew WHERE active=1 ORDER BY is_main DESC, hired_date ASC"
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT id, role_id, name, rarity, level, xp, mood, hired_date, "
+                "active, is_main, skill_cooldown_until "
+                "FROM crew ORDER BY active DESC, is_main DESC, hired_date ASC"
+            ).fetchall()
+
+        return [
+            {
+                "id": r[0], "role_id": r[1], "name": r[2], "rarity": r[3],
+                "level": r[4], "xp": r[5], "mood": r[6], "hired_date": r[7],
+                "active": bool(r[8]) if len(r) > 9 else True,
+                "is_main": bool(r[8]) if len(r) == 9 else bool(r[9] if len(r) > 9 else r[8]),
+                "skill_cooldown_until": r[10] if len(r) > 10 else None,
+            }
+            for r in rows
+        ]
+
+    def set_main_crew(self, crew_id):
+        """设定主船员。
+
+        Args:
+            crew_id: 船员 id
+
+        Returns:
+            bool: 是否设置成功
+        """
+        crew = self.get_crew(crew_id)
+        if not crew or not crew["active"]:
+            return False
+
+        self.conn.execute("UPDATE crew SET is_main=0")
+        self.conn.execute("UPDATE crew SET is_main=1 WHERE id=?", (crew_id,))
+        self.conn.commit()
+        return True
+
+    def upgrade_crew(self, crew_id, new_level, new_xp):
+        """升级船员。
+
+        Args:
+            crew_id: 船员 id
+            new_level: 新等级
+            new_xp: 新经验值
+        """
+        self.conn.execute(
+            "UPDATE crew SET level=?, xp=? WHERE id=?",
+            (new_level, new_xp, crew_id),
+        )
+        self.conn.commit()
+
+    def update_crew_mood(self, crew_id, mood):
+        """更新船员情绪值（0-100）。
+
+        Args:
+            crew_id: 船员 id
+            mood: 新情绪值
+        """
+        self.conn.execute(
+            "UPDATE crew SET mood=MAX(0, MIN(100, ?)) WHERE id=?",
+            (mood, crew_id),
+        )
+        self.conn.commit()
+
+    def decay_crew_mood(self, crew_id, amount):
+        """衰减船员情绪值。
+
+        Args:
+            crew_id: 船员 id
+            amount: 衰减量
+        """
+        self.conn.execute(
+            "UPDATE crew SET mood=MAX(0, mood - ?) WHERE id=?",
+            (amount, crew_id),
+        )
+        self.conn.commit()
+
+    def set_skill_cooldown(self, crew_id, cooldown_until):
+        """设置技能冷却截止日期。
+
+        Args:
+            crew_id: 船员 id
+            cooldown_until: 冷却截止日期 (YYYY-MM-DD)
+        """
+        self.conn.execute(
+            "UPDATE crew SET skill_cooldown_until=? WHERE id=?",
+            (cooldown_until, crew_id),
+        )
+        self.conn.commit()
+
+    def add_crew_dialogue(self, crew_id, date_str, trigger_type, text):
+        """记录船员对话。
+
+        Args:
+            crew_id: 船员 id
+            date_str: 日期
+            trigger_type: 触发类型
+            text: 对话内容
+
+        Returns:
+            int: 新对话 id
+        """
+        self.conn.execute(
+            "INSERT INTO crew_dialogues (crew_id, date, trigger_type, text) VALUES (?, ?, ?, ?)",
+            (crew_id, date_str, trigger_type, text),
+        )
+        self.conn.commit()
+        return self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    def get_crew_dialogues(self, crew_id=None, limit=20):
+        """获取船员对话历史。
+
+        Args:
+            crew_id: 船员 id，None 返回所有
+            limit: 返回条数上限
+
+        Returns:
+            list[dict]
+        """
+        if crew_id:
+            rows = self.conn.execute(
+                "SELECT cd.id, cd.crew_id, c.name, cd.date, cd.trigger_type, cd.text "
+                "FROM crew_dialogues cd JOIN crew c ON cd.crew_id=c.id "
+                "WHERE cd.crew_id=? ORDER BY cd.date DESC LIMIT ?",
+                (crew_id, limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT cd.id, cd.crew_id, c.name, cd.date, cd.trigger_type, cd.text "
+                "FROM crew_dialogues cd JOIN crew c ON cd.crew_id=c.id "
+                "ORDER BY cd.date DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+
+        return [
+            {"id": r[0], "crew_id": r[1], "name": r[2], "date": r[3],
+             "trigger_type": r[4], "text": r[5]}
+            for r in rows
+        ]
+
+    def get_crew_dialogue_count_today(self, crew_id, date_str):
+        """获取某船员今天的对话次数。
+
+        Args:
+            crew_id: 船员 id
+            date_str: 日期
+
+        Returns:
+            int
+        """
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM crew_dialogues WHERE crew_id=? AND date=?",
+            (crew_id, date_str),
+        )
+        return cursor.fetchone()[0]
+
+    def get_days_since_last_dialogue(self, crew_id, date_str):
+        """获取距上次对话的天数。
+
+        Args:
+            crew_id: 船员 id
+            date_str: 参考日期
+
+        Returns:
+            int: 天数，无记录时返回 999
+        """
+        cursor = self.conn.execute(
+            "SELECT date FROM crew_dialogues WHERE crew_id=? ORDER BY date DESC LIMIT 1",
+            (crew_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return 999
+        last_date = date.fromisoformat(row[0])
+        ref_date = date.fromisoformat(date_str)
+        return (ref_date - last_date).days
+
+    def add_crew_quest(self, crew_id, week_start_date, quest_type, target):
+        """添加船员每周任务。
+
+        Args:
+            crew_id: 船员 id
+            week_start_date: 周起始日期
+            quest_type: 任务类型
+            target: 完成目标
+
+        Returns:
+            int: 新任务 id
+        """
+        self.conn.execute(
+            "INSERT INTO crew_quests (crew_id, week_start_date, quest_type, target) "
+            "VALUES (?, ?, ?, ?)",
+            (crew_id, week_start_date, quest_type, target),
+        )
+        self.conn.commit()
+        return self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    def update_quest_progress(self, quest_id, progress):
+        """更新任务进度。
+
+        Args:
+            quest_id: 任务 id
+            progress: 新进度值
+        """
+        self.conn.execute(
+            "UPDATE crew_quests SET progress=? WHERE id=?",
+            (progress, quest_id),
+        )
+        self.conn.commit()
+
+    def complete_quest(self, quest_id):
+        """完成任务。
+
+        Args:
+            quest_id: 任务 id
+        """
+        self.conn.execute(
+            "UPDATE crew_quests SET completed=1 WHERE id=?",
+            (quest_id,),
+        )
+        self.conn.commit()
+
+    def claim_quest_reward(self, quest_id):
+        """领取任务奖励。
+
+        Args:
+            quest_id: 任务 id
+        """
+        self.conn.execute(
+            "UPDATE crew_quests SET reward_claimed=1 WHERE id=?",
+            (quest_id,),
+        )
+        self.conn.commit()
+
+    def get_active_quests(self, date_str=None):
+        """获取当前周活跃任务。
+
+        Args:
+            date_str: 参考日期
+
+        Returns:
+            list[dict]
+        """
+        if date_str is None:
+            date_str = date.today().isoformat()
+
+        rows = self.conn.execute(
+            "SELECT cq.id, cq.crew_id, c.name, cq.week_start_date, cq.quest_type, "
+            "cq.progress, cq.target, cq.completed, cq.reward_claimed "
+            "FROM crew_quests cq JOIN crew c ON cq.crew_id=c.id "
+            "WHERE cq.week_start_date <= ? AND c.active=1 "
+            "ORDER BY cq.completed ASC, cq.week_start_date DESC",
+            (date_str,),
+        ).fetchall()
+
+        return [
+            {
+                "id": r[0], "crew_id": r[1], "crew_name": r[2],
+                "week_start_date": r[3], "quest_type": r[4],
+                "progress": r[5], "target": r[6],
+                "completed": bool(r[7]), "reward_claimed": bool(r[8]),
+            }
+            for r in rows
+        ]
+
+    def get_crew_quests(self, crew_id, limit=5):
+        """获取某船员的任务历史。
+
+        Args:
+            crew_id: 船员 id
+            limit: 返回条数
+
+        Returns:
+            list[dict]
+        """
+        rows = self.conn.execute(
+            "SELECT id, week_start_date, quest_type, progress, target, completed, reward_claimed "
+            "FROM crew_quests WHERE crew_id=? ORDER BY week_start_date DESC LIMIT ?",
+            (crew_id, limit),
+        ).fetchall()
+
+        return [
+            {
+                "id": r[0], "week_start_date": r[1], "quest_type": r[2],
+                "progress": r[3], "target": r[4],
+                "completed": bool(r[5]), "reward_claimed": bool(r[6]),
+            }
+            for r in rows
+        ]
+
+    def add_recruit_history(self, date_str, role_id, rarity, method="random"):
+        """记录招募历史（用于保底机制）。
+
+        Args:
+            date_str: 日期
+            role_id: 角色 ID，None 表示未抽到角色
+            rarity: 稀有度
+            method: 招募方式
+        """
+        self.conn.execute(
+            "INSERT INTO crew_recruit_history (date, role_id, rarity, method) VALUES (?, ?, ?, ?)",
+            (date_str, role_id, rarity, method),
+        )
+        self.conn.commit()
+
+    def get_consecutive_misses(self, rarity):
+        """获取连续未抽中特定稀有度的次数。
+
+        Args:
+            rarity: 稀有度（"rare" 或 "legendary"）
+
+        Returns:
+            int: 连续未中次数
+        """
+        rows = self.conn.execute(
+            "SELECT rarity FROM crew_recruit_history ORDER BY id DESC"
+        ).fetchall()
+
+        count = 0
+        for row in rows:
+            if row[0] == rarity:
+                break
+            count += 1
+        return count
+
+    def get_crew_count(self):
+        """获取当前在船船员数量。
+
+        Returns:
+            int
+        """
+        cursor = self.conn.execute("SELECT COUNT(*) FROM crew WHERE active=1")
+        return cursor.fetchone()[0]
+
+    def get_completed_days_count(self):
+        """获取累计完成天数（含 used_skip 的天）。
+
+        Returns:
+            int
+        """
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM days WHERE completed > 0 OR used_skip = 1"
+        )
+        return cursor.fetchone()[0]
 
     def close(self):
         self.conn.close()

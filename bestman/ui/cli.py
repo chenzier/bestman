@@ -323,6 +323,12 @@ def done(extra, force, date_str, dice_mode, message):
 
     render_done(console, voyage, result, total_advance, mode)
 
+    # 船员对话
+    crew_msg = result.get("crew_dialogue")
+    if crew_msg:
+        console.print(f"[bold cyan][{crew_msg['name']}][/bold cyan] {crew_msg['text']}")
+        console.print()
+
 
 @main.group()
 def config():
@@ -741,6 +747,13 @@ def skip():
     console.print()
     console.print(f"[dim]{result['log_entry']}[/dim]")
     console.print()
+
+    # 船员对话
+    crew_msg = result.get("crew_dialogue")
+    if crew_msg:
+        console.print(f"[bold cyan][{crew_msg['name']}][/bold cyan] {crew_msg['text']}")
+        console.print()
+
     console.print("[dim]连击已保，明天继续前行！[/dim]")
 
 
@@ -1041,6 +1054,489 @@ def vessel_set(name):
     vdef = theme.vessels[name]
     console.print(f"[green]✓ 载具已切换为 {vdef.icon} {vdef.name}[/green]")
     console.print("[dim]运行 [bold green]bestman[/bold green] 查看仪表盘。[/dim]")
+    console.print()
+
+
+# ── crew 船员管理 ────────────────────────────────────────────────
+
+@main.group(invoke_without_command=True)
+@click.pass_context
+def crew(ctx):
+    """船员管理。
+
+    查看、招募、解雇船员，与船员对话互动。
+
+    \b
+    示例：
+        bestman crew                  # 查看船员列表
+        bestman crew hire captain     # 招募船长
+        bestman crew hire random      # 随机招募
+        bestman crew talk doctor      # 与船医对话
+        bestman crew gift cook        # 赠送礼物
+    """
+    if ctx.invoked_subcommand is None:
+        _require_init()
+        crew_list.callback()
+
+
+@crew.command("list")
+def crew_list():
+    """查看所有船员状态。
+
+    显示在船船员的名字、角色、等级、情绪和技能冷却状态。
+    """
+    from bestman.core.voyage import Voyage
+    voyage = Voyage()
+    status = voyage.crew_manager.get_crew_status()
+
+    console.print()
+    if not status["crew"]:
+        console.print("[dim]船上还没有船员。[/dim]")
+        console.print(f"[dim]运行 [bold green]bestman crew hire <角色>[/bold green] 招募第一位船员。[/dim]")
+        console.print(f"[dim]可招募角色：captain, doctor, lookout, bosun, cook[/dim]")
+        console.print()
+        return
+
+    console.print("[bold cyan]╔════════════════════════════╗[/bold cyan]")
+    console.print(f"[bold cyan]║  船员列表 ({len(status['crew'])}/{status['max_slots']})[/bold cyan]")
+
+    for c in status["crew"]:
+        marker = "[bold yellow]★[/bold yellow]" if c["is_main"] else " ○"
+        name_str = f"[bold cyan]{c['name']}[/bold cyan]"
+        rarity_color = {"common": "white", "rare": "blue", "legendary": "yellow"}.get(c["rarity"], "white")
+        rarity_str = f"[{rarity_color}]{c['rarity']}[/{rarity_color}]"
+        mood_icon = c["mood_description"]
+
+        skill = c.get("special_skill", {})
+        cooldown_str = ""
+        if c.get("skill_cooldown_until"):
+            cooldown_str = " [dim](技能冷却中)[/dim]"
+
+        console.print(
+            f"[bold cyan]║[/bold cyan] {marker} {name_str} Lv.{c['level']} {rarity_str}  {mood_icon}{cooldown_str}"
+        )
+
+    console.print("[bold cyan]╚════════════════════════════╝[/bold cyan]")
+    console.print()
+
+    # 任务
+    if status["quests"]:
+        console.print("[bold]本周任务：[/bold]")
+        for q in status["quests"]:
+            if q["completed"]:
+                bar = "[green]✓ 已完成[/green]"
+            else:
+                bar = f"[{'█' * q['progress']}{'░' * (q['target'] - q['progress'])}] {q['progress']}/{q['target']}"
+            console.print(f"  [cyan]{q['crew_name']}[/cyan]: {q['quest_type']} {bar}")
+
+    console.print()
+    console.print(f"[dim]船员上限：{status['max_slots']} 人 · 金币：{voyage.state.get_total_coins()} 💰[/dim]")
+    console.print(f"[dim]命令：[bold green]bestman crew hire[/bold green] | [bold green]talk[/bold green] | [bold green]upgrade[/bold green] | [bold green]gift[/bold green][/dim]")
+    console.print()
+
+
+@crew.command("hire")
+@click.argument("role", required=True)
+def crew_hire(role):
+    """招募船员。
+
+    \b
+    指定角色名进行定向招募，或使用 random 进行随机招募。
+    随机招募每日首次半价（50 金币）。
+
+    \b
+    示例：
+        bestman crew hire captain    # 定向招募船长（500 金币）
+        bestman crew hire random     # 随机招募（100 金币 / 首次 50）
+    """
+    from bestman.core.voyage import Voyage
+    voyage = Voyage()
+    cm = voyage.crew_manager
+
+    if role.lower() == "random":
+        result = cm.random_hire()
+        if result["success"]:
+            c = result["crew"]
+            rarity_color = {"common": "white", "rare": "cyan", "legendary": "yellow"}.get(c["rarity"], "white")
+            console.print(f"[green]✓ 招募成功！[/green]")
+            console.print(f"  获得 [{rarity_color}]{c['rarity']}[/{rarity_color}] 船员：[bold cyan]{c['name']}[/bold cyan]")
+            console.print(f"  花费：[yellow]{result['coins_spent']}[/yellow] 金币")
+            console.print(f"[dim]运行 [bold green]bestman crew[/bold green] 查看船员列表。[/dim]")
+        else:
+            console.print(f"[yellow]{result['error']}[/yellow]")
+            if result["rarity"]:
+                console.print(f"[dim]抽中稀有度：{result['rarity']}[/dim]")
+    else:
+        result = cm.hire(role.lower())
+        if result["success"]:
+            c = result["crew"]
+            console.print(f"[green]✓ 招募成功！[/green]")
+            console.print(f"  [bold cyan]{c['name']}[/bold cyan] 已登船！")
+            console.print(f"  花费：[yellow]{result['coins_spent']}[/yellow] 金币")
+            # 显示角色简介
+            char = cm.get_character(role.lower())
+            if char:
+                console.print(f"  [dim]{char.get('backstory', '')}[/dim]")
+        else:
+            console.print(f"[yellow]{result['error']}[/yellow]")
+
+    console.print()
+
+
+@crew.command("fire")
+@click.argument("role_id")
+def crew_fire(role_id):
+    """解雇船员。
+
+    解雇后可获得 50% 金币退款（传奇角色 60%）。
+    被解雇的船员可花费原价 80% 召回。
+
+    \b
+    示例：
+        bestman crew fire captain   # 解雇船长
+    """
+    from bestman.core.voyage import Voyage
+    voyage = Voyage()
+    cm = voyage.crew_manager
+
+    # 通过 role_id 找到 crew_id
+    active = voyage.state.list_crew(active_only=True)
+    target = next((c for c in active if c["role_id"] == role_id.lower()), None)
+    if target is None:
+        console.print(f"[yellow]船上没有角色：{role_id}[/yellow]")
+        console.print(f"[dim]运行 [bold green]bestman crew[/bold green] 查看当前船员。[/dim]")
+        return
+
+    char = cm.get_character(target["role_id"])
+    name = char["name"] if char else target["name"]
+
+    confirm = click.confirm(f"确认解雇 [bold cyan]{name}[/bold cyan]？将退还部分金币。", default=False)
+    if not confirm:
+        console.print("[dim]已取消。[/dim]")
+        return
+
+    result = cm.fire(target["id"])
+    if result["success"]:
+        console.print(f"[green]✓ {name} 已离船。[/green]")
+        console.print(f"  退款：[yellow]{result['refund']}[/yellow] 金币")
+    else:
+        console.print(f"[yellow]{result['error']}[/yellow]")
+
+    console.print()
+
+
+@crew.command("talk")
+@click.argument("role_id")
+def crew_talk(role_id):
+    """与船员对话。
+
+    手动触发船员说一段话。
+    每天第一次免费，后续每次 50 金币。
+
+    \b
+    示例：
+        bestman crew talk cook     # 与厨师聊天
+    """
+    from bestman.core.voyage import Voyage
+    from datetime import date
+    voyage = Voyage()
+    cm = voyage.crew_manager
+    today = date.today().isoformat()
+
+    active = voyage.state.list_crew(active_only=True)
+    target = next((c for c in active if c["role_id"] == role_id.lower()), None)
+    if target is None:
+        console.print(f"[yellow]船上没有角色：{role_id}[/yellow]")
+        return
+
+    # 检查今日免费次数
+    today_count = voyage.state.get_crew_dialogue_count_today(target["id"], today)
+    free_talks = cm.crew_config.get("daily_free_talk", 1)
+    is_free = today_count < free_talks
+
+    if not is_free:
+        cost = cm.crew_config.get("emergency_talk_cost", 50)
+        total_coins = voyage.state.get_total_coins()
+        if total_coins < cost:
+            console.print(f"[yellow]金币不足（需要 {cost}，当前 {total_coins}）[/yellow]")
+            return
+        cm._spend_coins(cost, today)
+        console.print(f"[dim]（花费 {cost} 金币）[/dim]")
+
+    result = cm.manual_talk(target["id"])
+    if result["success"]:
+        char = cm.get_character(target["role_id"])
+        name = char["name"] if char else target["name"]
+        console.print(f"[bold cyan][{name}][/bold cyan] {result['text']}")
+    else:
+        console.print(f"[yellow]{result['error']}[/yellow]")
+
+    console.print()
+
+
+@crew.command("info")
+@click.argument("role_id")
+def crew_info(role_id):
+    """查看船员详细信息。
+
+    显示角色背景、技能、本周任务、情绪和对话历史。
+
+    \b
+    示例：
+        bestman crew info doctor   # 查看船医详情
+    """
+    from bestman.core.voyage import Voyage
+    voyage = Voyage()
+    cm = voyage.crew_manager
+
+    active = voyage.state.list_crew(active_only=True)
+    target = next((c for c in active if c["role_id"] == role_id.lower()), None)
+    if target is None:
+        console.print(f"[yellow]船上没有角色：{role_id}[/yellow]")
+        return
+
+    char = cm.get_character(target["role_id"])
+    if char is None:
+        console.print(f"[red]角色配置缺失[/red]")
+        return
+
+    console.print()
+    console.print(f"[bold cyan]╔══ {char['name']} ══╗[/bold cyan]")
+    console.print(f"[bold cyan]║[/bold cyan] 角色：[cyan]{target['role_id']}[/cyan]")
+    console.print(f"[bold cyan]║[/bold cyan] 稀有度：[{target['rarity']}]{target['rarity']}[/{target['rarity']}]")
+    console.print(f"[bold cyan]║[/bold cyan] 等级：Lv.{target['level']} (XP: {target['xp']})")
+    console.print(f"[bold cyan]║[/bold cyan] 情绪：{cm._mood_description(target['mood'])} ({target['mood']}/100)")
+    console.print(f"[bold cyan]║[/bold cyan] 性格：[dim]{char.get('personality', '')}[/dim]")
+    console.print(f"[bold cyan]║[/bold cyan] 专长：[dim]{', '.join(char.get('specialties', []))}[/dim]")
+    console.print(f"[bold cyan]╟── 背景 ──[/bold cyan]")
+    console.print(f"[bold cyan]║[/bold cyan] [dim]{char.get('backstory', '')}[/dim]")
+
+    skill = char.get("special_skill", {})
+    if skill:
+        cooldown_str = f"冷却 {skill.get('cooldown_days', 0)} 天" if skill.get("cooldown_days") else "无冷却"
+        console.print(f"[bold cyan]╟── 技能 ──[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan] [bold]{skill.get('name', '')}[/bold]: {skill.get('description', '')}")
+        console.print(f"[bold cyan]║[/bold cyan] {cooldown_str}")
+
+    # 任务
+    quests = voyage.state.get_crew_quests(target["id"], limit=3)
+    if quests:
+        console.print(f"[bold cyan]╟── 近期任务 ──[/bold cyan]")
+        for q in quests:
+            status_str = "[green]✓[/green]" if q["completed"] else f"{q['progress']}/{q['target']}"
+            console.print(f"[bold cyan]║[/bold cyan] {q['week_start_date']} {q['quest_type']} {status_str}")
+
+    console.print(f"[bold cyan]╚{'═' * 20}╝[/bold cyan]")
+    console.print()
+
+    # 最近对话
+    dialogues = voyage.state.get_crew_dialogues(target["id"], limit=5)
+    if dialogues:
+        console.print(f"[dim]最近对话：[/dim]")
+        for d in dialogues:
+            console.print(f"  [dim]{d['date']}[/dim] [{d['trigger_type']}] {d['text']}")
+        console.print()
+
+
+@crew.command("upgrade")
+@click.argument("role_id")
+def crew_upgrade(role_id):
+    """升级船员。
+
+    使用金币提升船员等级，每级费用递增。
+    升级解锁新对话和增强技能效果。
+
+    \b
+    示例：
+        bestman crew upgrade cook
+    """
+    from bestman.core.voyage import Voyage
+    voyage = Voyage()
+    cm = voyage.crew_manager
+
+    active = voyage.state.list_crew(active_only=True)
+    target = next((c for c in active if c["role_id"] == role_id.lower()), None)
+    if target is None:
+        console.print(f"[yellow]船上没有角色：{role_id}[/yellow]")
+        return
+
+    char = cm.get_character(target["role_id"])
+    name = char["name"] if char else target["name"]
+
+    if target["level"] >= cm.crew_config.get("max_level", 10):
+        console.print(f"[yellow]{name} 已达到最高等级。[/yellow]")
+        return
+
+    base_cost = cm.crew_config.get("upgrade_base_cost", 100)
+    increment = cm.crew_config.get("upgrade_cost_increment", 20)
+    cost = base_cost + (target["level"] - 1) * increment
+
+    console.print(f"升级 [bold cyan]{name}[/bold cyan] Lv.{target['level']} → Lv.{target['level']+1}")
+    console.print(f"费用：[yellow]{cost}[/yellow] 金币")
+    confirm = click.confirm("确认升级？", default=True)
+    if not confirm:
+        console.print("[dim]已取消。[/dim]")
+        return
+
+    result = cm.upgrade(target["id"])
+    if result["success"]:
+        console.print(f"[green]✓ {name} 升至 Lv.{result['new_level']}！[/green]")
+        console.print(f"  花费：[yellow]{result['coins_spent']}[/yellow] 金币")
+    else:
+        console.print(f"[yellow]{result['error']}[/yellow]")
+
+    console.print()
+
+
+@crew.command("gift")
+@click.argument("role_id")
+def crew_gift(role_id):
+    """赠送礼物给船员。
+
+    花费 30 金币提升船员情绪 20 点。
+
+    \b
+    示例：
+        bestman crew gift cook    # 给厨师送礼物
+    """
+    from bestman.core.voyage import Voyage
+    from datetime import date
+    voyage = Voyage()
+    cm = voyage.crew_manager
+
+    active = voyage.state.list_crew(active_only=True)
+    target = next((c for c in active if c["role_id"] == role_id.lower()), None)
+    if target is None:
+        console.print(f"[yellow]船上没有角色：{role_id}[/yellow]")
+        return
+
+    char = cm.get_character(target["role_id"])
+    name = char["name"] if char else target["name"]
+
+    cost = cm.crew_config.get("gift_cost", 30)
+    total_coins = voyage.state.get_total_coins()
+    if total_coins < cost:
+        console.print(f"[yellow]金币不足（需要 {cost}，当前 {total_coins}）[/yellow]")
+        return
+
+    confirm = click.confirm(f"花费 [yellow]{cost}[/yellow] 金币给 [bold cyan]{name}[/bold cyan] 送礼物？", default=True)
+    if not confirm:
+        console.print("[dim]已取消。[/dim]")
+        return
+
+    cm._spend_coins(cost, date.today().isoformat())
+    new_mood = cm.boost_mood(target["id"], cm.crew_config.get("gift_mood_boost", 20))
+
+    console.print(f"[green]✓ 已送出礼物！[/green]")
+    console.print(f"  {name} 的情绪：{cm._mood_description(target['mood'])} → {cm._mood_description(new_mood)}")
+    console.print(f"[dim]（{name} 看起来很开心）[/dim]")
+    console.print()
+
+
+@crew.command("quest")
+def crew_quest():
+    """查看船员任务。
+
+    显示所有船员的本周任务及完成进度。
+    """
+    from bestman.core.voyage import Voyage
+    voyage = Voyage()
+    cm = voyage.crew_manager
+
+    quests = voyage.state.get_active_quests()
+
+    console.print()
+    if not quests:
+        console.print("[dim]暂无活跃任务。完成任务后会自动生成下周任务。[/dim]")
+        console.print()
+        return
+
+    console.print("[bold cyan]═ 本周船员任务 ═[/bold cyan]")
+    console.print()
+    for q in quests:
+        status_icon = "[green]✓[/green]" if q["completed"] else "[yellow]○[/yellow]"
+        reward_str = ""
+        if q["completed"] and not q["reward_claimed"]:
+            reward_str = " [yellow dim]（奖励待领取）[/yellow dim]"
+        elif q["completed"] and q["reward_claimed"]:
+            reward_str = " [dim]（已领取）[/dim]"
+
+        progress_bar = f"[{'█' * q['progress']}{'░' * (q['target'] - q['progress'])}] {q['progress']}/{q['target']}"
+        console.print(f"  {status_icon} [cyan]{q['crew_name']}[/cyan]: {q['quest_type']} {progress_bar}{reward_str}")
+
+    console.print()
+    console.print("[dim]任务自动推进——完成打卡、发现宝藏等行为会累积进度。[/dim]")
+    console.print()
+
+
+@crew.command("set-main")
+@click.argument("role_id")
+def crew_set_main(role_id):
+    """设置主船员。
+
+    主船员在打卡后优先发言。
+
+    \b
+    示例：
+        bestman crew set-main captain
+    """
+    from bestman.core.voyage import Voyage
+    voyage = Voyage()
+
+    active = voyage.state.list_crew(active_only=True)
+    target = next((c for c in active if c["role_id"] == role_id.lower()), None)
+    if target is None:
+        console.print(f"[yellow]船上没有角色：{role_id}[/yellow]")
+        return
+
+    if target["is_main"]:
+        console.print(f"[dim]{target['name']} 已经是主船员。[/dim]")
+        return
+
+    voyage.state.set_main_crew(target["id"])
+    console.print(f"[green]✓ {target['name']} 已设为主船员 ★[/green]")
+    console.print()
+
+
+@crew.command("shop")
+def crew_shop():
+    """船员商店。
+
+    浏览可招募的船员角色及价格。
+    """
+    from bestman.core.voyage import Voyage
+    voyage = Voyage()
+    cm = voyage.crew_manager
+
+    active_roles = {c["role_id"] for c in voyage.state.list_crew(active_only=True)}
+    total_coins = voyage.state.get_total_coins()
+
+    console.print()
+    console.print("[bold cyan]══ 船员商店 ══[/bold cyan]")
+    console.print(f"[dim]金币余额：[yellow]{total_coins}[/yellow] 💰[/dim]")
+    console.print()
+
+    for rid, char in cm.characters.items():
+        owned = rid in active_roles
+        rarity = char.get("rarity", "common")
+        rarity_color = {"common": "white", "rare": "cyan", "legendary": "yellow"}.get(rarity, "white")
+        cost = char.get("hire_cost", 500)
+        can_afford = total_coins >= cost
+
+        if owned:
+            status = "[dim]（已拥有）[/dim]"
+        elif can_afford:
+            status = f"[yellow]{cost} 金币[/yellow] [green]可购买[/green]"
+        else:
+            status = f"[yellow]{cost} 金币[/yellow] [red]金币不足[/red]"
+
+        console.print(f"  [{rarity_color}]{rarity:　<4s}[/{rarity_color}] [bold cyan]{char['name']:　<4s}[/bold cyan] {status}")
+        console.print(f"         [dim]{char.get('specialties', [])[0] if char.get('specialties') else ''} · {char.get('personality', '')}[/dim]")
+
+    console.print()
+    console.print("[dim]招募命令：[/dim]")
+    console.print("[dim]  [bold green]bestman crew hire <角色ID>[/bold green]  — 定向招募[/dim]")
+    console.print("[dim]  [bold green]bestman crew hire random[/bold green]    — 随机招募（100金币，每日首抽50）[/dim]")
     console.print()
 
 

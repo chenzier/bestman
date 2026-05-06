@@ -19,6 +19,7 @@ from bestman.core.state import BestmanState
 from bestman.core.map_engine import MapEngine, get_log_entry
 from bestman.core.events import EventEngine
 from bestman.core.llm import LLMClient, generate_voyage_log, chat_with_coach, generate_plan, review_summary, weigh_comment
+from bestman.core.crew import CrewManager
 from bestman.themes import get_theme
 
 
@@ -42,6 +43,7 @@ class Voyage:
         self.state = BestmanState()
         self.map_engine = MapEngine(self.config)
         self.event_engine = EventEngine(self.config)
+        self.crew_manager = CrewManager(self.config, self.state)
 
     @property
     def theme(self):
@@ -448,6 +450,44 @@ class Voyage:
         # 重新记录（写入最终金币数）
         self.state.record_day(date_str, completed=total_advance, extra=0, coins_earned=final_coins)
 
+        # ── 船员系统 ──
+        # 触发对话
+        crew_dialogue = self.crew_manager.trigger_dialogue(
+            "completed_day",
+            context={},
+            date_str=date_str,
+        )
+        # 里程碑对话
+        if crossed:
+            for m_name in crossed:
+                self.crew_manager.trigger_dialogue(
+                    "milestone",
+                    context={"name": m_name},
+                    date_str=date_str,
+                )
+        # 连击对话
+        if streak == 7:
+            self.crew_manager.trigger_dialogue("streak_7", date_str=date_str)
+        elif streak == 30:
+            self.crew_manager.trigger_dialogue("streak_30", date_str=date_str)
+
+        # 更新情绪
+        self.crew_manager.update_moods("completed_day", date_str)
+        if crossed:
+            self.crew_manager.update_moods("milestone", date_str)
+        if streak == 7 or streak == 30:
+            self.crew_manager.update_moods(f"streak_{streak}", date_str)
+
+        # 任务进度
+        self.crew_manager.check_quest_progress("completed_day", date_str)
+        if discovered_treasures:
+            self.crew_manager.check_quest_progress("treasure_found", date_str)
+        if event and event["type"] == "bonus_tile":
+            self.crew_manager.check_quest_progress("bonus_tile", date_str)
+
+        # 生成周任务（如果需要）
+        self.crew_manager.generate_weekly_quests(date_str)
+
         return {
             "success": True,
             "message": f"🎲 掷出：{description}！航行 {total_advance} 海里",
@@ -467,6 +507,7 @@ class Voyage:
                 "breakdown": coins_breakdown,
             },
             "treasures": discovered_treasures,
+            "crew_dialogue": crew_dialogue,
         }
 
     def talk(self, user_message) -> dict:
@@ -571,6 +612,13 @@ class Voyage:
         log_entry = "今日使用跳过令牌。船队在避风港暂歇，连击得以延续。明日继续航行。"
         self.state.save_log(date_str, log_entry)
 
+        # ── 船员系统 ──
+        crew_dialogue = self.crew_manager.trigger_dialogue(
+            "missed_day", date_str=date_str,
+        )
+        self.crew_manager.update_moods("missed_day", date_str)
+        self.crew_manager.generate_weekly_quests(date_str)
+
         remaining = self.state.get_available_skip_tokens()
 
         return {
@@ -579,6 +627,7 @@ class Voyage:
             "tiles_revealed": self.state.get_tiles_revealed(),
             "log_entry": log_entry,
             "error": None,
+            "crew_dialogue": crew_dialogue,
         }
 
     def _get_plan_stage_info(self):
