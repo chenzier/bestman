@@ -287,11 +287,79 @@ def _draw_fog(pixels: dict, route: list, tiles_revealed: int, pal: Palette):
                 )
 
 
+def _overlay_emoji(png_bytes: bytes, emoji: str, center: tuple) -> bytes:
+    """Overlay an emoji character onto a PNG at the given pixel centre.
+
+    Uses Pillow to composite the emoji on top of the existing PNG.
+    Falls back silently (returns original bytes) if Pillow is unavailable
+    or no suitable font is found.
+
+    Args:
+        png_bytes: Raw PNG bytes produced by make_png.
+        emoji:     A single emoji character (e.g. "🐉").
+        center:    (cx, cy) pixel coordinate for the emoji centre.
+
+    Returns:
+        PNG bytes with emoji composited in, or original bytes on failure.
+    """
+    try:
+        import io
+        from PIL import Image, ImageDraw, ImageFont
+
+        cx, cy = center
+        img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+        draw = ImageDraw.Draw(img)
+
+        # Try to load a system emoji font large enough to be visible.
+        # Font size is chosen so the emoji fills roughly 2 map cells (40px).
+        font_size = 32
+        font = None
+        _emoji_font_candidates = [
+            # macOS — Apple Color Emoji is a TTC, index=0 required
+            ("/System/Library/Fonts/Apple Color Emoji.ttc", {"index": 0}),
+            # Linux (Noto)
+            ("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", {}),
+            ("/usr/share/fonts/noto/NotoColorEmoji.ttf", {}),
+            # Windows
+            ("C:/Windows/Fonts/seguiemj.ttf", {}),
+        ]
+        for path, kwargs in _emoji_font_candidates:
+            try:
+                font = ImageFont.truetype(path, font_size, **kwargs)
+                break
+            except (OSError, IOError, Exception):
+                continue
+
+        if font is None:
+            # No emoji font found — skip overlay rather than draw □
+            return png_bytes
+
+        # Measure text bounding box to centre it precisely
+        bbox = draw.textbbox((0, 0), emoji, font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+        x = cx - tw // 2 - bbox[0]
+        y = cy - th // 2 - bbox[1]
+
+        draw.text((x, y), emoji, font=font, embedded_color=True)
+
+        out = io.BytesIO()
+        img.save(out, format="PNG")
+        return out.getvalue()
+
+    except Exception:
+        return png_bytes
+
+
 def _draw_vessel(pixels: dict, route: list, tiles_revealed: int,
                  vessel_def, pal: Palette):
-    """Draw the ship sprite with beacon and glow."""
+    """Draw the ship sprite with beacon and glow.
+
+    Returns:
+        (scx, scy) pixel centre of the vessel, or None if not drawn.
+    """
     if tiles_revealed <= 0 or tiles_revealed > len(route):
-        return
+        return None
     sx, sy = route[tiles_revealed - 1]
     scx = PAD_X + sx * CELL + CELL // 2
     scy = PAD_Y + sy * CELL + CELL // 2
@@ -313,9 +381,10 @@ def _draw_vessel(pixels: dict, route: list, tiles_revealed: int,
                         pa,
                     )
 
-    # Vessel sprite
-    sprite_scale = max(1, CELL // 4)
-    _draw_vessel_pixels(vessel_def, scx, scy, sprite_scale, pixels)
+    # Vessel sprite — skip pixel art when emoji overlay will be used instead
+    if getattr(vessel_def, "icon_mode", "emoji") != "emoji" or not getattr(vessel_def, "icon", None):
+        sprite_scale = max(1, CELL // 4)
+        _draw_vessel_pixels(vessel_def, scx, scy, sprite_scale, pixels)
 
     # Golden beacon dot below ship
     for dy in range(-3, 4):
@@ -324,6 +393,8 @@ def _draw_vessel(pixels: dict, route: list, tiles_revealed: int,
                 px, py = scx + dx, scy + dy + 12
                 if (px, py) in pixels:
                     pixels[(px, py)] = (255, 215, 0, 255)
+
+    return (scx, scy)
 
 
 def _draw_title(pixels: dict, current_day: int, stage_name: str,
@@ -398,14 +469,22 @@ def _render_png(
     _draw_fog(pixels, route, tiles_revealed, palette)
 
     # ── Layer 8: vessel + beacon ──
-    _draw_vessel(pixels, route, tiles_revealed, vessel_def, palette)
+    vessel_center = _draw_vessel(pixels, route, tiles_revealed, vessel_def, palette)
 
     # ── Layer 9: title ──
     _draw_title(pixels, current_day, stage_name, total_days, remaining,
                 getattr(vessel_def, "name", "unknown") if vessel_def else "unknown",
                 palette)
 
-    return make_png(W, H, lambda x, y: pixels.get((x, y), palette.bg))
+    png_bytes = make_png(W, H, lambda x, y: pixels.get((x, y), palette.bg))
+
+    # ── Layer 10: emoji overlay (Pillow) ──
+    vessel_icon = getattr(vessel_def, "icon", None) if vessel_def else None
+    vessel_icon_mode = getattr(vessel_def, "icon_mode", "emoji") if vessel_def else "emoji"
+    if vessel_icon and vessel_center and vessel_icon_mode == "emoji":
+        png_bytes = _overlay_emoji(png_bytes, vessel_icon, vessel_center)
+
+    return png_bytes
 
 
 # ═══════════════════════════════════════════════════════════════
