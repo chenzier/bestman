@@ -119,7 +119,7 @@ def _render_map_or_canvas(console, voyage, **kw):
                 theme=voyage.theme,
                 vessel_def=voyage.theme.vessels.get(voyage.current_vessel),
             )
-            canvas_kitty_display(png, cols=90, rows=24)
+            canvas_kitty_display(png, cols=120, rows=24)
             return
         except Exception:
             pass

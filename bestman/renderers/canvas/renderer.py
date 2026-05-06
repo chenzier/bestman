@@ -314,7 +314,7 @@ def _draw_vessel(pixels: dict, route: list, tiles_revealed: int,
                     )
 
     # Vessel sprite
-    sprite_scale = max(1, CELL // 8)
+    sprite_scale = max(1, CELL // 4)
     _draw_vessel_pixels(vessel_def, scx, scy, sprite_scale, pixels)
 
     # Golden beacon dot below ship
