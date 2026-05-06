@@ -33,6 +33,7 @@ class VesselDef:
     price: int = 0
     width: int = 12
     height: int = 9
+    icon_mode: str = "emoji"   # "emoji" = overlay icon on canvas; "pixel" = use pixel art only
 
 
 @dataclass

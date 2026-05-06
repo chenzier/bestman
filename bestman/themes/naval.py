@@ -221,12 +221,12 @@ _NAVAL_VESSELS = {
         name="龙头战船", icon="🐉",
         pixels=[
             '...RRR......',
-            '.RRRRRR.....',
-            'ROOOOOOR....',
-            'RODDDDDOR...',
+            '.RRRRRRR.....',
+            'ROOORROOR....',
+            'RODDDDDDOR...',
             'ODDGGGGDDO..',
-            '.RDDDDDDR...',
-            '..RRRRR.....',
+            '.RDDDDDDDR...',
+            '..RRRRRRR.....',
         ],
         palette={
             'R': (200, 32, 32, 255),
@@ -253,6 +253,122 @@ _NAVAL_VESSELS = {
         theme="naval", price=500, width=10, height=6,
     ),
 }
+
+# ── 新增载具：emoji 模式 ──────────────────────────────────────────
+
+_EMOJI_VESSELS = {
+    "longship": VesselDef(
+        name="维京战船", icon="🛶",
+        pixels=[], palette={},
+        theme="naval", price=150, icon_mode="emoji",
+    ),
+    "steamship": VesselDef(
+        name="蒸汽铁甲船", icon="🚢",
+        pixels=[], palette={},
+        theme="naval", price=400, icon_mode="emoji",
+    ),
+    "pirate": VesselDef(
+        name="海盗旗舰", icon="🏴‍☠️",
+        pixels=[], palette={},
+        theme="naval", price=600, icon_mode="emoji",
+    ),
+    "whale": VesselDef(
+        name="巨鲸坐骑", icon="🐋",
+        pixels=[], palette={},
+        theme="naval", price=800, icon_mode="emoji",
+    ),
+    "ufo": VesselDef(
+        name="不明飞行物", icon="🛸",
+        pixels=[], palette={},
+        theme="naval", price=1000, icon_mode="emoji",
+    ),
+    "turtle": VesselDef(
+        name="玄武神龟", icon="🐢",
+        pixels=[], palette={},
+        theme="naval", price=200, icon_mode="emoji",
+    ),
+}
+
+# ── 新增载具：像素画模式 ──────────────────────────────────────────
+# scale=5 → 每字符 5px。width/height 以字符为单位。
+
+_PIXEL_VESSELS = {
+    # 飞鱼快船：流线尖头，两侧鱼翼，速度感
+    "flyingfish": VesselDef(
+        name="飞鱼快船", icon="🐟",
+        pixels=[
+            '....CCCC........',
+            '..CCSSSSCC......',
+            '.CSSSSSSSSC.....',
+            'CSSSSSSSSSSSCCC.',
+            'CCSSSSSSSSSSSSC.',
+            'CSSSSSSSSSSSCCC.',
+            '.CSSSSSSSSC.....',
+            '..CCSSSSCC......',
+            '....CCCC........',
+        ],
+        palette={
+            'C': (32, 178, 170, 255),   # 青蓝外壳
+            'S': (180, 238, 230, 255),  # 银白鱼腹
+        },
+        theme="naval", price=250,
+        width=16, height=9,
+        icon_mode="pixel",
+    ),
+    # 铁甲炮舰：厚重方正，烟囱+炮管
+    "ironclad": VesselDef(
+        name="铁甲炮舰", icon="💣",
+        pixels=[
+            '....SSSS........',
+            '....SSSS........',
+            '..IIIIIIIII.....',
+            '.IIIKKKKKKII....',
+            'IIIKKKKKKKKKII..',
+            'IIIKKKKKKKKKII..',
+            'IIIKKKKKKKKKII..',
+            '.IIIKKKKKKII....',
+            '..IIIIIIIII.....',
+        ],
+        palette={
+            'I': (80, 80, 90, 255),     # 铁灰装甲
+            'K': (50, 50, 58, 255),     # 深铁舱体
+            'S': (160, 160, 160, 255),  # 银色烟囱
+        },
+        theme="naval", price=550,
+        width=16, height=9,
+        icon_mode="pixel",
+    ),
+    # 灯塔守望船：塔身+光晕，细长竖向
+    "lighthouse": VesselDef(
+        name="灯塔守望船", icon="🔦",
+        pixels=[
+            '....YYY.....',
+            '...YYWYY....',
+            '....YYY.....',
+            '....WWW.....',
+            '...WWWWW....',
+            '...WBBBW....',
+            '...WBBBW....',
+            '...WBBBW....',
+            '..WWWWWWW...',
+            '..WBBBBBBW..',
+            '..WBBBBBBW..',
+            'WWWWWWWWWWWW',
+        ],
+        palette={
+            'Y': (255, 240, 80, 255),   # 灯光黄
+            'W': (240, 230, 210, 255),  # 白灰塔身
+            'B': (180, 160, 120, 255),  # 暗砖纹
+        },
+        theme="naval", price=350,
+        width=12, height=12,
+        icon_mode="pixel",
+    ),
+}
+
+# 合并到主字典（保留原有三艘）
+_NAVAL_VESSELS.update(_EMOJI_VESSELS)
+_NAVAL_VESSELS.update(_PIXEL_VESSELS)
 
 
 @dataclass
