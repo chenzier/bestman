@@ -458,6 +458,83 @@ fn cli_config_show_and_rebuild_projection_work() {
 }
 
 #[test]
+fn cli_config_llm_updates_config_and_home_env_is_loaded() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "config",
+            "llm",
+            "--enable",
+            "--base-url",
+            "http://127.0.0.1:9/v1",
+            "--model",
+            "test-model",
+            "--api-key-env",
+            "BESTMAN_TEST_API_KEY",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("llm config updated"))
+        .stdout(predicate::str::contains("enabled: true"))
+        .stdout(predicate::str::contains("model: test-model"));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("enabled = true"))
+        .stdout(predicate::str::contains(
+            "base_url = \"http://127.0.0.1:9/v1\"",
+        ))
+        .stdout(predicate::str::contains(
+            "api_key_env = \"BESTMAN_TEST_API_KEY\"",
+        ))
+        .stdout(predicate::str::contains("model = \"test-model\""));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "done",
+            "--dice",
+            "1",
+            "--llm",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "missing API key env BESTMAN_TEST_API_KEY",
+        ));
+
+    std::fs::write(home.join(".env"), "BESTMAN_TEST_API_KEY=test-key\n").unwrap();
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "talk",
+            "测试一下 LLM key",
+            "--llm",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("missing API key env").not());
+}
+
+#[test]
 fn cli_coin_grant_adds_replayable_coins() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");

@@ -52,6 +52,7 @@ q / Esc / Ctrl-C
 | `bestman --home <dir> status` | 查看当前状态 |
 | `bestman --home <dir> status --json` | 输出 JSON 状态 |
 | `bestman --home <dir> config show` | 只读展示当前安全配置 |
+| `bestman --home <dir> config llm --enable --model gpt-4o-mini` | 配置 OpenAI-compatible LLM |
 | `bestman --home <dir> rebuild` | 从 `events.jsonl` 重建 SQLite projection |
 | `bestman --home <dir> reset --yes` | 清空该 home 下的本地数据 |
 | `bestman --home <dir> done --level full --dice 3` | 完成今日训练，推进航程 |
@@ -132,12 +133,27 @@ model = "gpt-4o-mini"
 prompt_version = "bestman-v2-narrative"
 ```
 
-运行时设置对应环境变量：
+推荐用命令写入配置：
 
 ```bash
-export OPENAI_API_KEY=...
+bestman --home /tmp/bestman-demo config llm \
+  --enable \
+  --base-url https://api.openai.com/v1 \
+  --model gpt-4o-mini \
+  --api-key-env OPENAI_API_KEY
+```
+
+API key 可以用环境变量，也可以放在数据目录的 `.env`：
+
+```bash
+cat > /tmp/bestman-demo/.env <<'EOF'
+OPENAI_API_KEY=sk-...
+EOF
+
 bestman --home /tmp/bestman-demo done --llm
 ```
+
+不传 `--home` 时，新版 Rust 会读系统应用数据目录下的 `.env`，并兼容旧 prototype 的 `~/.bestman/.env`。
 
 如果 LLM 不可用，打卡仍会成功，并保留本地模板日志。
 

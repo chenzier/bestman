@@ -170,6 +170,18 @@ enum ShopCommand {
 #[derive(Debug, Subcommand)]
 enum ConfigCommand {
     Show,
+    Llm {
+        #[arg(long)]
+        enable: bool,
+        #[arg(long)]
+        disable: bool,
+        #[arg(long)]
+        base_url: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        api_key_env: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -218,6 +230,7 @@ enum RecapPeriodArg {
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
     let paths = AppPaths::from_home(resolve_home(cli.home)?);
+    load_env_files(&paths.home)?;
     let command = cli.command.unwrap_or(Command::Status { json: false });
     match command {
         Command::Init {
@@ -251,6 +264,40 @@ pub fn run() -> Result<()> {
             ConfigCommand::Show => {
                 let app = BestmanApp::open(paths)?;
                 println!("{}", toml::to_string_pretty(&app.config)?.trim_end());
+            }
+            ConfigCommand::Llm {
+                enable,
+                disable,
+                base_url,
+                model,
+                api_key_env,
+            } => {
+                let mut config = BestmanConfig::load_or_default(&paths.config)?;
+                if enable && disable {
+                    bail!("use only one of --enable or --disable");
+                }
+                if enable {
+                    config.llm.enabled = true;
+                }
+                if disable {
+                    config.llm.enabled = false;
+                }
+                if let Some(base_url) = base_url {
+                    config.llm.base_url = base_url;
+                }
+                if let Some(model) = model {
+                    config.llm.model = model;
+                }
+                if let Some(api_key_env) = api_key_env {
+                    config.llm.api_key_env = api_key_env;
+                }
+                config.save(&paths.config)?;
+                println!("llm config updated");
+                println!("enabled: {}", config.llm.enabled);
+                println!("base_url: {}", config.llm.base_url);
+                println!("model: {}", config.llm.model);
+                println!("api_key_env: {}", config.llm.api_key_env);
+                println!("env files: {}", env_file_hint(&paths.home));
             }
         },
         Command::Rebuild => {
@@ -705,6 +752,58 @@ fn resolve_home(home: Option<PathBuf>) -> Result<PathBuf> {
         return Ok(project.data_dir().to_path_buf());
     }
     bail!("could not resolve data dir")
+}
+
+fn load_env_files(home: &Path) -> Result<()> {
+    let mut candidates = vec![home.join(".env")];
+    if let Some(user_home) = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf())
+    {
+        candidates.push(user_home.join(".bestman/.env"));
+    }
+    candidates.push(PathBuf::from(".env"));
+    for path in candidates {
+        if path.exists() {
+            load_env_file(&path)?;
+        }
+    }
+    Ok(())
+}
+
+fn load_env_file(path: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(path)?;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if key.is_empty() || std::env::var_os(key).is_some() {
+            continue;
+        }
+        let value = value.trim().trim_matches('"').trim_matches('\'');
+        // SAFETY: bestman is a single-process CLI and loads .env files before
+        // spawning threads, so updating this process environment is safe here.
+        unsafe {
+            std::env::set_var(key, value);
+        }
+    }
+    Ok(())
+}
+
+fn env_file_hint(home: &Path) -> String {
+    let mut paths = vec![home.join(".env")];
+    if let Some(user_home) = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf())
+    {
+        paths.push(user_home.join(".bestman/.env"));
+    }
+    paths
+        .into_iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" or ")
 }
 
 fn today() -> NaiveDate {
