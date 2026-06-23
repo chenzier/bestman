@@ -28,6 +28,9 @@ pub fn check_in_event(
     if !dashboard.initialized {
         bail!("voyage is not initialized");
     }
+    if dashboard.last_action_date == Some(date) {
+        bail!("today is already recorded; use tomorrow's check-in to continue");
+    }
     let dice_distance = match forced_dice {
         Some(n @ 1..=3) => n,
         Some(other) => bail!("dice must be 1..=3, got {other}"),
@@ -104,6 +107,9 @@ pub fn skip_or_rest_event(
 ) -> Result<StoredEvent> {
     if !dashboard.initialized {
         bail!("voyage is not initialized");
+    }
+    if dashboard.last_action_date == Some(date) {
+        bail!("today is already recorded; no second rest/skip is needed");
     }
     if is_rest_day(config, date) {
         Ok(StoredEvent::new(EventKind::RestDayObserved {

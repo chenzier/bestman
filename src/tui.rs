@@ -89,7 +89,7 @@ fn run_live_dashboard_inner(
     options: LiveTuiOptions,
     stdout: Stdout,
 ) -> Result<()> {
-    let image_protocol = if options.force_kitty_images {
+    let mut image_protocol = if options.force_kitty_images {
         ImageProtocol::Kitty
     } else if options.images {
         terminal_image::detect_current()
@@ -107,6 +107,7 @@ fn run_live_dashboard_inner(
         .chars()
         .collect::<Vec<_>>();
     let mut tick: usize = 0;
+    let mut notice: Option<String> = None;
     loop {
         if let Some(limit) = tick_limit {
             if tick >= limit as usize {
@@ -114,12 +115,16 @@ fn run_live_dashboard_inner(
             }
         }
         if let Some(action) = scripted_actions.get(tick).copied() {
-            if apply_action(app, action, options.forced_dice)? {
-                break;
+            match apply_action(app, action, options.forced_dice) {
+                UiAction::Continue => {}
+                UiAction::Quit => break,
+                UiAction::Notice(message) => notice = Some(message),
             }
         } else if options.raw_mode {
-            if handle_pending_input(app, options.forced_dice)? {
-                break;
+            match handle_pending_input(app, options.forced_dice)? {
+                UiAction::Continue => {}
+                UiAction::Quit => break,
+                UiAction::Notice(message) => notice = Some(message),
             }
         }
 
@@ -131,28 +136,37 @@ fn run_live_dashboard_inner(
                 image_protocol == ImageProtocol::Kitty,
                 tick + 1,
                 tick_limit,
+                notice.as_deref(),
             );
         })?;
         if image_protocol == ImageProtocol::Kitty {
-            refresh_image_frames(app, &mut image_frames, &mut last_image_frame_key)?;
-            let size = terminal.size()?;
-            let origin = companion_image_origin(Rect::new(0, 0, size.width, size.height));
-            if tick % image_frame_stride(options.tick_ms) == 0 {
-                queue!(terminal.backend_mut(), MoveTo(origin.0, origin.1))?;
-                write_kitty_frame(
-                    terminal.backend_mut(),
-                    &image_frames,
-                    tick,
-                    options.image_id,
-                )?;
+            let image_result = (|| -> Result<()> {
+                refresh_image_frames(app, &mut image_frames, &mut last_image_frame_key)?;
+                let size = terminal.size()?;
+                let origin = companion_image_origin(Rect::new(0, 0, size.width, size.height));
+                if tick % image_frame_stride(options.tick_ms) == 0 {
+                    queue!(terminal.backend_mut(), MoveTo(origin.0, origin.1))?;
+                    write_kitty_frame(
+                        terminal.backend_mut(),
+                        &image_frames,
+                        tick,
+                        options.image_id,
+                    )?;
+                }
+                Ok(())
+            })();
+            if let Err(err) = image_result {
+                image_protocol = ImageProtocol::None;
+                notice = Some(format!("Image mode disabled: {err}"));
             }
         }
         tick = tick.saturating_add(1);
-        if scripted_actions.is_empty()
-            && options.raw_mode
-            && wait_for_next_frame(app, options.forced_dice, options.tick_ms)?
-        {
-            break;
+        if scripted_actions.is_empty() && options.raw_mode {
+            match wait_for_next_frame(app, options.forced_dice, options.tick_ms)? {
+                UiAction::Continue => {}
+                UiAction::Quit => break,
+                UiAction::Notice(message) => notice = Some(message),
+            }
         } else if options.tick_ms > 0 && (!options.raw_mode || !scripted_actions.is_empty()) {
             std::thread::sleep(Duration::from_millis(options.tick_ms));
         }
@@ -166,37 +180,46 @@ fn run_live_dashboard_inner(
     Ok(())
 }
 
-fn handle_pending_input(app: &mut BestmanApp, forced_dice: Option<u32>) -> Result<bool> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum UiAction {
+    Continue,
+    Quit,
+    Notice(String),
+}
+
+fn handle_pending_input(app: &mut BestmanApp, forced_dice: Option<u32>) -> Result<UiAction> {
     while poll(Duration::from_millis(0))? {
         if let Event::Key(key) = read()? {
-            if handle_key(app, key, forced_dice)? {
-                return Ok(true);
+            let action = handle_key(app, key, forced_dice);
+            if !matches!(action, UiAction::Continue) {
+                return Ok(action);
             }
         }
     }
-    Ok(false)
+    Ok(UiAction::Continue)
 }
 
 fn wait_for_next_frame(
     app: &mut BestmanApp,
     forced_dice: Option<u32>,
     tick_ms: u64,
-) -> Result<bool> {
+) -> Result<UiAction> {
     let wait = Duration::from_millis(tick_ms);
     if poll(wait)? {
         if let Event::Key(key) = read()? {
-            if handle_key(app, key, forced_dice)? {
-                return Ok(true);
+            let action = handle_key(app, key, forced_dice);
+            if !matches!(action, UiAction::Continue) {
+                return Ok(action);
             }
         }
         return handle_pending_input(app, forced_dice);
     }
-    Ok(false)
+    Ok(UiAction::Continue)
 }
 
-fn handle_key(app: &mut BestmanApp, key: KeyEvent, forced_dice: Option<u32>) -> Result<bool> {
+fn handle_key(app: &mut BestmanApp, key: KeyEvent, forced_dice: Option<u32>) -> UiAction {
     if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c')) {
-        return Ok(true);
+        return UiAction::Quit;
     }
     let action = match key.code {
         KeyCode::Char(ch) => ch,
@@ -221,7 +244,7 @@ fn render_pet_snapshot(
 ) -> Result<String> {
     let backend = ratatui::backend::TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend)?;
-    terminal.draw(|frame| draw_pet_dashboard(frame, dash, images_enabled, tick, ticks))?;
+    terminal.draw(|frame| draw_pet_dashboard(frame, dash, images_enabled, tick, ticks, None))?;
     Ok(strip_test_backend_quotes(&terminal.backend().to_string()))
 }
 
@@ -231,7 +254,12 @@ fn strip_test_backend_quotes(text: &str) -> String {
         if idx > 0 {
             out.push('\n');
         }
-        out.push_str(line.trim_matches('"'));
+        let cleaned = line
+            .split("\" Hidden by multi-width symbols:")
+            .next()
+            .unwrap_or(line)
+            .trim_matches('"');
+        out.push_str(cleaned);
     }
     out
 }
@@ -242,6 +270,7 @@ fn draw_pet_dashboard(
     images_enabled: bool,
     tick: usize,
     ticks: Option<u16>,
+    notice: Option<&str>,
 ) {
     let area = frame.area();
     let areas = dashboard_areas(area);
@@ -312,7 +341,8 @@ fn draw_pet_dashboard(
         areas.companion,
     );
 
-    let action_lines = vec![
+    let today_recorded = dash.last_action_date == Some(Local::now().date_naive());
+    let mut action_lines = vec![
         Line::styled(
             "Today",
             Style::default()
@@ -320,7 +350,14 @@ fn draw_pet_dashboard(
                 .add_modifier(Modifier::BOLD),
         ),
         Line::raw(""),
-        Line::styled(today_message(dash), Style::default().fg(Color::LightGreen)),
+        Line::styled(
+            today_message(dash, today_recorded),
+            Style::default().fg(Color::LightGreen),
+        ),
+        Line::from(vec![
+            Span::styled("Task ", Style::default().fg(Color::DarkGray)),
+            Span::raw(dash.daily_task.clone()),
+        ]),
         Line::raw(""),
         Line::from(vec![
             Span::styled("Streak ", Style::default().fg(Color::DarkGray)),
@@ -330,6 +367,15 @@ fn draw_pet_dashboard(
             Span::styled("Vessel ", Style::default().fg(Color::DarkGray)),
             Span::raw(vessel_name(&dash.current_vessel)),
         ]),
+    ];
+    if let Some(notice) = notice {
+        action_lines.push(Line::raw(""));
+        action_lines.push(Line::styled(
+            notice.to_string(),
+            Style::default().fg(Color::Cyan),
+        ));
+    }
+    action_lines.extend([
         Line::raw(""),
         Line::styled("Keys", Style::default().fg(Color::DarkGray)),
         Line::styled("[L] Light   [N] Normal", Style::default().fg(Color::Yellow)),
@@ -337,7 +383,7 @@ fn draw_pet_dashboard(
             "[F] Full    [S] Rest    [Q] Quit",
             Style::default().fg(Color::Yellow),
         ),
-    ];
+    ]);
     frame.render_widget(
         Paragraph::new(action_lines)
             .block(Block::default().borders(Borders::ALL))
@@ -450,7 +496,15 @@ fn state_text(animation: VesselAnimation) -> &'static str {
     }
 }
 
-fn today_message(dash: &Dashboard) -> &'static str {
+fn today_message(dash: &Dashboard, today_recorded: bool) -> &'static str {
+    if today_recorded {
+        return match dash.last_action_kind.as_deref() {
+            Some("check_in") => "Today's training is recorded.",
+            Some("rest") => "Today's planned rest is recorded.",
+            Some("skip") => "Today's rest/skip is recorded.",
+            _ => "Today is recorded.",
+        };
+    }
     match dash.animation {
         VesselAnimation::Waiting | VesselAnimation::Idle => "Ready for today's training.",
         VesselAnimation::Sailing => "Training logged. The sloop is moving.",
@@ -566,16 +620,38 @@ fn write_kitty_frame<W: Write>(
     Ok(())
 }
 
-fn apply_action(app: &mut BestmanApp, action: char, forced_dice: Option<u32>) -> Result<bool> {
+fn apply_action(app: &mut BestmanApp, action: char, forced_dice: Option<u32>) -> UiAction {
     match action {
-        'l' | 'L' => append_check_in(app, CompletionLevel::Light, forced_dice)?,
-        'n' | 'N' => append_check_in(app, CompletionLevel::Normal, forced_dice)?,
-        'f' | 'F' => append_check_in(app, CompletionLevel::Full, forced_dice)?,
-        's' | 'S' => append_skip(app)?,
-        'q' | 'Q' => return Ok(true),
+        'l' | 'L' => {
+            return action_notice(
+                append_check_in(app, CompletionLevel::Light, forced_dice),
+                "Light check-in recorded.",
+            );
+        }
+        'n' | 'N' => {
+            return action_notice(
+                append_check_in(app, CompletionLevel::Normal, forced_dice),
+                "Normal check-in recorded.",
+            );
+        }
+        'f' | 'F' => {
+            return action_notice(
+                append_check_in(app, CompletionLevel::Full, forced_dice),
+                "Full check-in recorded.",
+            );
+        }
+        's' | 'S' => return action_notice(append_skip(app), "Rest recorded."),
+        'q' | 'Q' => return UiAction::Quit,
         _ => {}
     }
-    Ok(false)
+    UiAction::Continue
+}
+
+fn action_notice(result: Result<()>, success: &str) -> UiAction {
+    match result {
+        Ok(()) => UiAction::Notice(success.to_string()),
+        Err(err) => UiAction::Notice(err.to_string()),
+    }
 }
 
 fn append_check_in(

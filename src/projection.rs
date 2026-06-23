@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Result, bail};
+use chrono::NaiveDate;
 use rusqlite::{Connection, params};
 
 use crate::events::{EventKind, StoredEvent, VesselAnimation};
@@ -9,6 +10,7 @@ use crate::events::{EventKind, StoredEvent, VesselAnimation};
 pub struct Dashboard {
     pub initialized: bool,
     pub total_days: u32,
+    pub daily_task: String,
     pub position: u32,
     pub completed_days: u32,
     pub coins: i32,
@@ -17,6 +19,8 @@ pub struct Dashboard {
     pub streak: u32,
     pub current_vessel: String,
     pub animation: VesselAnimation,
+    pub last_action_date: Option<NaiveDate>,
+    pub last_action_kind: Option<String>,
     pub latest_log: Option<String>,
 }
 
@@ -42,6 +46,7 @@ impl Projection {
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 initialized INTEGER NOT NULL DEFAULT 0,
                 total_days INTEGER NOT NULL DEFAULT 120,
+                daily_task TEXT NOT NULL DEFAULT '未设置 - 运行 init 设置每日任务',
                 position INTEGER NOT NULL DEFAULT 0,
                 completed_days INTEGER NOT NULL DEFAULT 0,
                 coins INTEGER NOT NULL DEFAULT 0,
@@ -49,7 +54,9 @@ impl Projection {
                 mood INTEGER NOT NULL DEFAULT 60,
                 streak INTEGER NOT NULL DEFAULT 0,
                 current_vessel TEXT NOT NULL DEFAULT 'starter_sloop',
-                animation TEXT NOT NULL DEFAULT 'idle'
+                animation TEXT NOT NULL DEFAULT 'idle',
+                last_action_date TEXT,
+                last_action_kind TEXT
             );
             CREATE TABLE IF NOT EXISTS logs (
                 event_id TEXT PRIMARY KEY,
@@ -63,6 +70,14 @@ impl Projection {
             INSERT OR IGNORE INTO app_state (id) VALUES (1);
             "#,
         )?;
+        add_column_if_missing(
+            &self.conn,
+            "app_state",
+            "daily_task",
+            "TEXT NOT NULL DEFAULT '未设置 - 运行 init 设置每日任务'",
+        )?;
+        add_column_if_missing(&self.conn, "app_state", "last_action_date", "TEXT")?;
+        add_column_if_missing(&self.conn, "app_state", "last_action_kind", "TEXT")?;
         Ok(())
     }
 
@@ -71,7 +86,7 @@ impl Projection {
         tx.execute("DELETE FROM logs", [])?;
         tx.execute("DELETE FROM purchases", [])?;
         tx.execute(
-            "UPDATE app_state SET initialized=0,total_days=120,position=0,completed_days=0,coins=0,trust=20,mood=60,streak=0,current_vessel='starter_sloop',animation='idle' WHERE id=1",
+            "UPDATE app_state SET initialized=0,total_days=120,daily_task='未设置 - 运行 init 设置每日任务',position=0,completed_days=0,coins=0,trust=20,mood=60,streak=0,current_vessel='starter_sloop',animation='idle',last_action_date=NULL,last_action_kind=NULL WHERE id=1",
             [],
         )?;
 
@@ -79,12 +94,13 @@ impl Projection {
             match event.kind {
                 EventKind::VoyageInitialized {
                     total_days,
+                    daily_task,
                     vessel_id,
                     ..
                 } => {
                     tx.execute(
-                        "UPDATE app_state SET initialized=1,total_days=?,current_vessel=?,animation='waiting' WHERE id=1",
-                        params![total_days, vessel_id],
+                        "UPDATE app_state SET initialized=1,total_days=?,daily_task=?,current_vessel=?,animation='waiting' WHERE id=1",
+                        params![total_days, daily_task, vessel_id],
                     )?;
                 }
                 EventKind::DailyCheckInCompleted {
@@ -99,8 +115,8 @@ impl Projection {
                 } => {
                     let coins: i32 = coins_breakdown.iter().map(|c| c.amount).sum();
                     tx.execute(
-                        "UPDATE app_state SET position=?,completed_days=completed_days+1,coins=coins+?,trust=MIN(100,MAX(0,trust+?)),mood=MIN(100,MAX(0,mood+?)),streak=streak+1,animation=? WHERE id=1",
-                        params![new_position, coins, trust_delta, mood_delta, animation_name(animation)],
+                        "UPDATE app_state SET position=?,completed_days=completed_days+1,coins=coins+?,trust=MIN(100,MAX(0,trust+?)),mood=MIN(100,MAX(0,mood+?)),streak=streak+1,animation=?,last_action_date=?,last_action_kind='check_in' WHERE id=1",
+                        params![new_position, coins, trust_delta, mood_delta, animation_name(animation), date.to_string()],
                     )?;
                     tx.execute(
                         "INSERT OR REPLACE INTO logs (event_id,date,text,source) VALUES (?,?,?,'template')",
@@ -115,8 +131,8 @@ impl Projection {
                     ..
                 } => {
                     tx.execute(
-                        "UPDATE app_state SET mood=MIN(100,MAX(0,mood+?)),streak=streak+1,animation=? WHERE id=1",
-                        params![mood_delta, animation_name(animation)],
+                        "UPDATE app_state SET mood=MIN(100,MAX(0,mood+?)),streak=0,animation=?,last_action_date=?,last_action_kind='skip' WHERE id=1",
+                        params![mood_delta, animation_name(animation), date.to_string()],
                     )?;
                     tx.execute(
                         "INSERT OR REPLACE INTO logs (event_id,date,text,source) VALUES (?,?,?,'template')",
@@ -129,8 +145,8 @@ impl Projection {
                     template_narrative,
                 } => {
                     tx.execute(
-                        "UPDATE app_state SET animation=? WHERE id=1",
-                        params![animation_name(animation)],
+                        "UPDATE app_state SET animation=?,last_action_date=?,last_action_kind='rest' WHERE id=1",
+                        params![animation_name(animation), date.to_string()],
                     )?;
                     tx.execute(
                         "INSERT OR REPLACE INTO logs (event_id,date,text,source) VALUES (?,?,?,'template')",
@@ -171,21 +187,27 @@ impl Projection {
 
     pub fn dashboard(&self) -> Result<Dashboard> {
         let mut stmt = self.conn.prepare(
-            "SELECT initialized,total_days,position,completed_days,coins,trust,mood,streak,current_vessel,animation FROM app_state WHERE id=1",
+            "SELECT initialized,total_days,daily_task,position,completed_days,coins,trust,mood,streak,current_vessel,animation,last_action_date,last_action_kind FROM app_state WHERE id=1",
         )?;
         let row = stmt.query_row([], |row| {
+            let last_action_date = row
+                .get::<_, Option<String>>(11)?
+                .and_then(|date| NaiveDate::parse_from_str(&date, "%Y-%m-%d").ok());
             Ok(Dashboard {
                 initialized: row.get::<_, i32>(0)? == 1,
                 total_days: row.get::<_, u32>(1)?,
-                position: row.get::<_, u32>(2)?,
-                completed_days: row.get::<_, u32>(3)?,
-                coins: row.get(4)?,
-                trust: row.get(5)?,
-                mood: row.get(6)?,
-                streak: row.get::<_, u32>(7)?,
-                current_vessel: row.get(8)?,
-                animation: animation_from_name(row.get::<_, String>(9)?.as_str())
+                daily_task: row.get(2)?,
+                position: row.get::<_, u32>(3)?,
+                completed_days: row.get::<_, u32>(4)?,
+                coins: row.get(5)?,
+                trust: row.get(6)?,
+                mood: row.get(7)?,
+                streak: row.get::<_, u32>(8)?,
+                current_vessel: row.get(9)?,
+                animation: animation_from_name(row.get::<_, String>(10)?.as_str())
                     .unwrap_or(VesselAnimation::Idle),
+                last_action_date,
+                last_action_kind: row.get(12)?,
                 latest_log: None,
             })
         })?;
@@ -227,4 +249,24 @@ pub fn animation_from_name(name: &str) -> Result<VesselAnimation> {
         "low_energy" => VesselAnimation::LowEnergy,
         other => bail!("unknown animation {other}"),
     })
+}
+
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
+    let exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?",
+        params![table, column],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+            [],
+        )?;
+    }
+    Ok(())
 }

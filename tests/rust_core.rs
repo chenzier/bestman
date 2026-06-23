@@ -43,17 +43,68 @@ fn event_replay_rebuilds_projection() {
     app.rebuild_projection().unwrap();
 
     let before = app.projection.dashboard().unwrap();
+    assert_eq!(before.daily_task, config.voyage.daily_task);
     assert_eq!(before.position, 3);
     assert_eq!(before.completed_days, 1);
     assert_eq!(before.coins, 12);
     assert_eq!(before.trust, 23);
     assert_eq!(before.animation, VesselAnimation::Sailing);
+    assert_eq!(
+        before.last_action_date,
+        Some(NaiveDate::from_ymd_opt(2026, 6, 23).unwrap())
+    );
+    assert_eq!(before.last_action_kind.as_deref(), Some("check_in"));
 
     std::fs::remove_file(&app.paths.db).unwrap();
     let events = app.store.read_all().unwrap();
     let mut rebuilt = Projection::open(&app.paths.db).unwrap();
     rebuilt.rebuild(events).unwrap();
     assert_eq!(rebuilt.dashboard().unwrap(), before);
+}
+
+#[test]
+fn same_day_check_in_is_rejected() {
+    let dir = tempdir().unwrap();
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    let config = BestmanConfig::default();
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let date = NaiveDate::from_ymd_opt(2026, 6, 23).unwrap();
+    let dash = app.projection.dashboard().unwrap();
+    app.store
+        .append(
+            rules::check_in_event(
+                &config,
+                &dash,
+                date,
+                CompletionLevel::Normal,
+                "".to_string(),
+                Some(2),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let dash = app.projection.dashboard().unwrap();
+
+    let err = rules::check_in_event(
+        &config,
+        &dash,
+        date,
+        CompletionLevel::Full,
+        "".to_string(),
+        Some(3),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("today is already recorded"));
 }
 
 #[test]

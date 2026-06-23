@@ -1,78 +1,72 @@
-# 计划系统 技术路线
+# 训练计划技术路线
 
-> 版本：v1.2（已完成）
+> 优先级：v2  
+> 定位：支撑今日任务，不压过宠物船
 
----
+## 新定位
 
-## 功能
+训练计划的价值是让 TUI 中的“今日任务”可靠、清晰、可调整。
 
-| 功能 | 命令 | 状态 |
-|------|------|------|
-| 计划创建 | `bestman plan create` | ✅ |
-| 计划查看 | `bestman plan show` | ✅ |
-| 计划编辑 | `bestman plan edit` | ✅ |
-| 周回顾 | `bestman review` | ✅ |
-| 计划自适应 | `bestman talk` 中修改，到期自动恢复 | ✅ |
+短期不要恢复旧 Python 版的完整 plan/talk/review 系统。先做本地、轻量、可解释的计划。
 
----
+## v1 必要能力
 
-## 计划创建流程
+- `init --daily-task` 写入默认每日任务。
+- TUI 直接展示今日任务。
+- `done` 明确记录本次完成级别和用户 message。
+- 同日重复打卡策略明确：
+  - 禁止重复，或
+  - 允许补记但不重复发奖励。
 
-交互式 CLI 收集以下信息：
+## v2 计划模型
 
-- **目标类型**：weight_loss / muscle_gain / habit / custom
-- **起始体重**（可选）
-- **目标体重**（可选）
-- **总天数**（默认 120）
-- **健身水平**：beginner / occasional / intermediate
-- **偏好**：bodyweight / outdoor / mixed
+建议事件化：
 
-LLM 基于以上信息生成分阶段计划和里程碑，保存为 `~/.bestman/plan.yaml`。
-
----
-
-## 计划结构
-
-```yaml
-name: <plan name>
-goal_type: weight_loss|muscle_gain|habit|custom
-start_date: YYYY-MM-DD
-target_date: YYYY-MM-DD
-total_days: <int>
-profile:
-  height_cm: <float | None>
-  start_weight_kg: <float | None>
-  target_weight_kg: <float | None>
-  fitness_level: beginner|occasional|intermediate
-  preference: bodyweight|outdoor|mixed
-stages:
-  - { name: ..., days: [start, end], daily_task: ... }
-milestones:
-  <day>: "<name>"
+```text
+PlanCreated
+PlanAdjusted
+DailyTaskCompleted
+DailyTaskSkipped
 ```
 
----
+projection 中只保留当前计划和今日任务。
 
-## 计划自适应
+基础字段：
 
-通过 `bestman talk` 与船长对话，可临时调整训练计划。调整记录存入 `plan_overrides` 表，到期自动恢复。
-
-```sql
-CREATE TABLE plan_overrides (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_date TEXT NOT NULL,
-    expires_date TEXT,
-    field TEXT NOT NULL,
-    original_value TEXT NOT NULL,
-    override_value TEXT NOT NULL,
-    reason TEXT DEFAULT '',
-    active INTEGER DEFAULT 1
-)
+```toml
+[voyage]
+total_days = 120
+daily_task = "深蹲 3x15 + 平板支撑 3x30s"
+rest_days = ["sun"]
 ```
 
----
+后续可扩展：
 
-## 已知缺口
+```text
+plan_id
+goal_type
+stages
+scheduled_tasks
+temporary_overrides
+```
 
-- 身高（`height_cm`）未在 CLI `plan_create` 中提示输入
-- 体重目标未和 `weigh` 结果联动做自动适应（目前仅手工调整）
+## LLM 接入边界
+
+LLM 可以：
+
+- 根据用户目标生成计划建议。
+- 把计划解释得更温柔。
+- 为伤病/疲劳提供低风险替代建议。
+
+LLM 不应：
+
+- 自动改规则状态。
+- 在没有用户确认时改计划。
+- 做医疗诊断。
+
+## 暂缓
+
+- 周回顾自动总结。
+- 复杂分阶段 plan.yaml。
+- `talk` 中直接自动修改计划。
+- 体重目标自动调整训练计划。

@@ -7,7 +7,7 @@ use directories::ProjectDirs;
 
 use crate::app::{AppPaths, BestmanApp};
 use crate::config::BestmanConfig;
-use crate::events::CompletionLevel;
+use crate::events::{CoinAward, CompletionLevel};
 use crate::llm::mock_narrative;
 use crate::map::Route;
 use crate::rules;
@@ -15,8 +15,8 @@ use crate::tui;
 use crate::vessels::catalog::VesselCatalog;
 
 #[derive(Debug, Parser)]
-#[command(name = "bestman-rs")]
-#[command(about = "bestman Rust pet-vessel prototype")]
+#[command(name = "bestman")]
+#[command(about = "Bestman pet-vessel fitness companion")]
 pub struct Cli {
     #[arg(long, env = "BESTMAN_HOME")]
     home: Option<PathBuf>,
@@ -146,7 +146,7 @@ pub fn run() -> Result<()> {
             let event = rules::init_event(&app.config, today());
             app.store.append(event)?;
             app.rebuild_projection()?;
-            println!("bestman-rs initialized");
+            println!("bestman initialized");
         }
         Command::Status { json } => {
             let mut app = BestmanApp::open(paths)?;
@@ -169,6 +169,7 @@ pub fn run() -> Result<()> {
             let dash = app.projection.dashboard()?;
             let event =
                 rules::check_in_event(&app.config, &dash, today(), level.into(), message, dice)?;
+            let feedback = done_feedback(&event.kind);
             let stored = app.store.append(event)?;
             if mock_llm {
                 let text = mock_narrative("今天完成训练，请写一段温柔航海日志")?;
@@ -180,7 +181,7 @@ pub fn run() -> Result<()> {
             }
             app.rebuild_projection()?;
             let dash = app.projection.dashboard()?;
-            println!("done: position {} coins {}", dash.position, dash.coins);
+            print_done_feedback(&app.config.voyage.daily_task, feedback, &dash);
         }
         Command::Skip { reason } => {
             let mut app = BestmanApp::open(paths)?;
@@ -368,6 +369,7 @@ fn print_dashboard(app: &BestmanApp, dash: &crate::projection::Dashboard) {
 fn status_json(dash: &crate::projection::Dashboard) -> serde_json::Value {
     serde_json::json!({
         "initialized": dash.initialized,
+        "daily_task": dash.daily_task,
         "position": dash.position,
         "total_days": dash.total_days,
         "coins": dash.coins,
@@ -376,8 +378,93 @@ fn status_json(dash: &crate::projection::Dashboard) -> serde_json::Value {
         "streak": dash.streak,
         "current_vessel": dash.current_vessel,
         "animation": format!("{:?}", dash.animation),
+        "last_action_date": dash.last_action_date.map(|date| date.to_string()),
+        "last_action_kind": dash.last_action_kind,
         "latest_log": dash.latest_log,
     })
+}
+
+#[derive(Debug)]
+struct DoneFeedback {
+    level: CompletionLevel,
+    old_position: u32,
+    new_position: u32,
+    dice_distance: u32,
+    coins_breakdown: Vec<CoinAward>,
+    trust_delta: i32,
+    mood_delta: i32,
+    milestones: Vec<String>,
+    treasures: Vec<String>,
+}
+
+fn done_feedback(kind: &crate::events::EventKind) -> DoneFeedback {
+    let crate::events::EventKind::DailyCheckInCompleted {
+        level,
+        old_position,
+        new_position,
+        dice_distance,
+        coins_breakdown,
+        trust_delta,
+        mood_delta,
+        milestones,
+        treasures,
+        ..
+    } = kind
+    else {
+        unreachable!("done feedback is only built from check-in events");
+    };
+    DoneFeedback {
+        level: *level,
+        old_position: *old_position,
+        new_position: *new_position,
+        dice_distance: *dice_distance,
+        coins_breakdown: coins_breakdown.clone(),
+        trust_delta: *trust_delta,
+        mood_delta: *mood_delta,
+        milestones: milestones.clone(),
+        treasures: treasures.clone(),
+    }
+}
+
+fn print_done_feedback(
+    daily_task: &str,
+    feedback: DoneFeedback,
+    dash: &crate::projection::Dashboard,
+) {
+    let coins: i32 = feedback
+        .coins_breakdown
+        .iter()
+        .map(|award| award.amount)
+        .sum();
+    println!("Check-in recorded");
+    println!("task: {daily_task}");
+    println!("level: {}", level_label(feedback.level));
+    println!(
+        "voyage: {} -> {} (+{} days)",
+        feedback.old_position, feedback.new_position, feedback.dice_distance
+    );
+    println!("coins: +{coins} (total {})", dash.coins);
+    println!(
+        "mood: {:+} -> {}    trust: {:+} -> {}",
+        feedback.mood_delta, dash.mood, feedback.trust_delta, dash.trust
+    );
+    if !feedback.milestones.is_empty() {
+        println!("milestones: {}", feedback.milestones.join(", "));
+    }
+    if !feedback.treasures.is_empty() {
+        println!("treasures: {}", feedback.treasures.join(", "));
+    }
+    if let Some(log) = &dash.latest_log {
+        println!("log: {log}");
+    }
+}
+
+fn level_label(level: CompletionLevel) -> &'static str {
+    match level {
+        CompletionLevel::Light => "light",
+        CompletionLevel::Normal => "normal",
+        CompletionLevel::Full => "full",
+    }
 }
 
 fn shop_cost(item_id: &str) -> Result<i32> {

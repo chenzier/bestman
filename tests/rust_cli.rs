@@ -36,15 +36,22 @@ fn cli_init_done_status_and_log_work() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("position 3"));
+        .stdout(predicate::str::contains("Check-in recorded"))
+        .stdout(predicate::str::contains("task: 俯卧撑 3x10"))
+        .stdout(predicate::str::contains("voyage: 0 -> 3 (+3 days)"))
+        .stdout(predicate::str::contains("coins: +12"));
 
     Command::cargo_bin("bestman-rs")
         .unwrap()
         .args(["--home", home.to_str().unwrap(), "status", "--json"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("\"daily_task\": \"俯卧撑 3x10\""))
         .stdout(predicate::str::contains("\"position\": 3"))
-        .stdout(predicate::str::contains("\"coins\": 12"));
+        .stdout(predicate::str::contains("\"coins\": 12"))
+        .stdout(predicate::str::contains(
+            "\"last_action_kind\": \"check_in\"",
+        ));
 
     Command::cargo_bin("bestman-rs")
         .unwrap()
@@ -52,6 +59,51 @@ fn cli_init_done_status_and_log_work() {
         .assert()
         .success()
         .stdout(predicate::str::contains("LLM航海日志"));
+}
+
+#[test]
+fn installed_binary_name_works_for_v1_entrypoint() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("initialized"));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "status", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"initialized\": true"));
+}
+
+#[test]
+fn cli_rejects_second_check_in_on_same_day() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "done", "--dice", "1"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "done", "--dice", "1"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("today is already recorded"));
 }
 
 #[test]
@@ -183,8 +235,10 @@ fn cli_tui_generates_companion_preview() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Starter Sloop"))
+        .stdout(predicate::str::contains("Task 深蹲 3x15"))
         .stdout(predicate::str::contains("Ready for today's training."))
-        .stdout(predicate::str::contains("Captain's Log"));
+        .stdout(predicate::str::contains("Captain's Log"))
+        .stdout(predicate::str::contains("Hidden by multi-width symbols").not());
 
     assert!(home.join("cache/vessel-frames").exists());
 }

@@ -2,7 +2,7 @@
 
 把健身打卡做成一个宠物船陪伴系统。
 
-当前主入口是 **Rust 版 `bestman-rs`**。Python 版仍保留在仓库中，但只作为 legacy/prototype 参考，不再作为新功能主线。
+当前主入口是 **Rust 版 `bestman`**。Python 版仍保留在仓库中，但只作为 legacy/prototype 参考，不再作为新功能主线。
 
 ## 当前定位
 
@@ -21,20 +21,21 @@ bestman 的核心不再是“航海地图游戏”，而是“宠物船陪伴 + 
 ```bash
 git clone https://github.com/chenzier/bestman.git
 cd bestman
-cargo run -- --home /tmp/bestman-demo init
-cargo run -- --home /tmp/bestman-demo tui
+cargo install --path .
+bestman --home /tmp/bestman-demo init
+bestman --home /tmp/bestman-demo tui
 ```
 
 实时 TUI：
 
 ```bash
-cargo run -- --home /tmp/bestman-demo tui --live
+bestman --home /tmp/bestman-demo tui --live
 ```
 
 如果终端支持 Kitty/Ghostty/WezTerm 图片协议，可以启用图片船：
 
 ```bash
-cargo run -- --home /tmp/bestman-demo tui --live --images
+bestman --home /tmp/bestman-demo tui --live --images
 ```
 
 退出实时 TUI：
@@ -47,22 +48,22 @@ q / Esc / Ctrl-C
 
 | 命令 | 说明 |
 |------|------|
-| `cargo run -- --home <dir> init` | 初始化配置、事件日志和默认船 |
-| `cargo run -- --home <dir> status` | 查看当前状态 |
-| `cargo run -- --home <dir> status --json` | 输出 JSON 状态 |
-| `cargo run -- --home <dir> done --level full --dice 3` | 完成今日训练，推进航程 |
-| `cargo run -- --home <dir> done --mock-llm` | 使用 mock LLM 生成航海日志 |
-| `cargo run -- --home <dir> skip` | 记录休息/跳过 |
-| `cargo run -- --home <dir> log` | 查看最新航海日志 |
-| `cargo run -- --home <dir> vessel list` | 查看可用船只 |
-| `cargo run -- --home <dir> vessel set <id>` | 切换当前船只 |
-| `cargo run -- --home <dir> shop buy <item_id>` | 购买简单商店物品 |
-| `cargo run -- --home <dir> tui` | 打开静态宠物船面板 |
-| `cargo run -- --home <dir> tui --live --images` | 打开实时宠物船 TUI |
-| `cargo run -- preview --animation sailing --output /tmp/ship.png` | 导出船只预览 PNG |
-| `cargo run -- --home <dir> dashboard-image --output /tmp/dashboard.png` | 导出 dashboard PNG |
-| `cargo run -- animation-frames --animation sailing --output-dir /tmp/frames` | 导出船只动画帧 |
-| `cargo run -- --home <dir> dashboard-frames --output-dir /tmp/dashboard-frames` | 导出 dashboard 动画帧 |
+| `bestman --home <dir> init` | 初始化配置、事件日志和默认船 |
+| `bestman --home <dir> status` | 查看当前状态 |
+| `bestman --home <dir> status --json` | 输出 JSON 状态 |
+| `bestman --home <dir> done --level full --dice 3` | 完成今日训练，推进航程 |
+| `bestman --home <dir> done --mock-llm` | 使用 mock LLM 生成航海日志 |
+| `bestman --home <dir> skip` | 记录休息/跳过 |
+| `bestman --home <dir> log` | 查看最新航海日志 |
+| `bestman --home <dir> vessel list` | 查看可用船只 |
+| `bestman --home <dir> vessel set <id>` | 切换当前船只 |
+| `bestman --home <dir> shop buy <item_id>` | 购买简单商店物品 |
+| `bestman --home <dir> tui` | 打开静态宠物船面板 |
+| `bestman --home <dir> tui --live --images` | 打开实时宠物船 TUI |
+| `bestman preview --animation sailing --output /tmp/ship.png` | 导出船只预览 PNG |
+| `bestman --home <dir> dashboard-image --output /tmp/dashboard.png` | 导出 dashboard PNG |
+| `bestman animation-frames --animation sailing --output-dir /tmp/frames` | 导出船只动画帧 |
+| `bestman --home <dir> dashboard-frames --output-dir /tmp/dashboard-frames` | 导出 dashboard 动画帧 |
 
 实时 TUI 按键：
 
@@ -90,7 +91,7 @@ q / Esc / Ctrl-C
 不传 `--home` 时会使用系统应用数据目录。开发时建议显式传入临时目录，避免污染真实数据：
 
 ```bash
-cargo run -- --home /tmp/bestman-demo status
+bestman --home /tmp/bestman-demo status
 ```
 
 ## 船只资产
@@ -173,8 +174,7 @@ cargo test
 
 ## 后续重点
 
-1. 把 Rust CLI 打包成真正的 `bestman` 二进制，而不是长期依赖 `cargo run`。
-2. 补今日任务展示、同日重复打卡策略和更清晰的打卡反馈。
-3. 完善船只 ownership/equipped/shop 解锁模型。
-4. 优化 TUI 图片定位和首屏引导。
-5. 接入真实 LLM 日志生成，并保留 template fallback。
+1. 完善船只 ownership/equipped/shop 解锁模型。
+2. 优化 TUI 图片定位和首屏引导。
+3. 接入真实 LLM 日志生成，并保留 template fallback。
+4. 增加发布包和升级说明。

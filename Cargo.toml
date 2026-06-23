@@ -2,9 +2,14 @@
 name = "bestman-rs"
 version = "0.1.0"
 edition = "2024"
+default-run = "bestman"
 
 [[bin]]
 name = "bestman-rs"
+path = "src/bin/bestman-rs.rs"
+
+[[bin]]
+name = "bestman"
 path = "src/main.rs"
 
 [dependencies]
