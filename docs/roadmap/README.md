@@ -38,6 +38,8 @@ Rust CLI/TUI
   vessels/
 ```
 
+详细阶段执行与验收标准见 [P1-P5 执行方案](p1-p5-execution-plan.md)。
+
 ## 当前已落地
 
 | 能力 | 状态 |
