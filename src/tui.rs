@@ -275,10 +275,11 @@ fn draw_pet_dashboard(
     let area = frame.area();
     let areas = dashboard_areas(area);
     let progress = progress_ratio(dash);
+    let today_recorded = dash.last_action_date == Some(Local::now().date_naive());
 
     let title = Line::from(vec![
         Span::styled(
-            "Bestman",
+            "Bestman Companion",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -290,22 +291,15 @@ fn draw_pet_dashboard(
         ),
     ]);
     let summary = Line::from(vec![
+        Span::styled("Today ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            dash.daily_task.clone(),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("    "),
         Span::raw(format!("Day {} / {}", dash.position, dash.total_days)),
-        Span::raw("   "),
-        Span::styled(
-            format!("{} coins", dash.coins),
-            Style::default().fg(Color::Yellow),
-        ),
-        Span::raw("   "),
-        Span::styled(
-            format!("Mood {}", dash.mood),
-            Style::default().fg(Color::Green),
-        ),
-        Span::raw("   "),
-        Span::styled(
-            format!("Trust {}", dash.trust),
-            Style::default().fg(Color::LightBlue),
-        ),
     ]);
     frame.render_widget(
         Paragraph::new(vec![title, summary])
@@ -327,24 +321,30 @@ fn draw_pet_dashboard(
             Line::styled("~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~", Style::default().fg(Color::Blue)),
         ]
     } else {
-        ascii_ship_lines(dash.animation)
+        companion_stage_lines(dash)
     };
     frame.render_widget(
         Paragraph::new(stage_lines)
             .alignment(Alignment::Center)
             .block(
                 Block::default()
-                    .title(format!(" {} ", vessel_name(&dash.current_vessel)))
+                    .title(format!(
+                        " Companion · {} ",
+                        vessel_name(&dash.current_vessel)
+                    ))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan)),
             ),
         areas.companion,
     );
 
-    let today_recorded = dash.last_action_date == Some(Local::now().date_naive());
     let mut action_lines = vec![
         Line::styled(
-            "Today",
+            if today_recorded {
+                "Today is done"
+            } else {
+                "Today's action"
+            },
             Style::default()
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
@@ -354,18 +354,36 @@ fn draw_pet_dashboard(
             today_message(dash, today_recorded),
             Style::default().fg(Color::LightGreen),
         ),
+        Line::raw(""),
         Line::from(vec![
             Span::styled("Task ", Style::default().fg(Color::DarkGray)),
-            Span::raw(dash.daily_task.clone()),
+            Span::styled(
+                dash.daily_task.clone(),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::raw(""),
         Line::from(vec![
+            Span::styled("Coins ", Style::default().fg(Color::DarkGray)),
+            Span::styled(dash.coins.to_string(), Style::default().fg(Color::Yellow)),
+            Span::raw("   "),
             Span::styled("Streak ", Style::default().fg(Color::DarkGray)),
-            Span::raw(dash.streak.to_string()),
+            Span::styled(
+                dash.streak.to_string(),
+                Style::default().fg(Color::LightGreen),
+            ),
         ]),
         Line::from(vec![
-            Span::styled("Vessel ", Style::default().fg(Color::DarkGray)),
-            Span::raw(vessel_name(&dash.current_vessel)),
+            Span::styled("Mood ", Style::default().fg(Color::DarkGray)),
+            Span::styled(dash.mood.to_string(), Style::default().fg(Color::Green)),
+            Span::raw("   "),
+            Span::styled("Trust ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                dash.trust.to_string(),
+                Style::default().fg(Color::LightBlue),
+            ),
         ]),
     ];
     if let Some(notice) = notice {
@@ -377,22 +395,36 @@ fn draw_pet_dashboard(
     }
     action_lines.extend([
         Line::raw(""),
-        Line::styled("Keys", Style::default().fg(Color::DarkGray)),
-        Line::styled("[L] Light   [N] Normal", Style::default().fg(Color::Yellow)),
+        Line::styled("Check in", Style::default().fg(Color::DarkGray)),
+        Line::styled("[F] Full training", Style::default().fg(Color::Yellow)),
+        Line::styled("[N] Normal   [L] Light", Style::default().fg(Color::Yellow)),
         Line::styled(
-            "[F] Full    [S] Rest    [Q] Quit",
-            Style::default().fg(Color::Yellow),
+            "[S] Rest     [Q] Quit",
+            Style::default().fg(Color::DarkGray),
         ),
     ]);
     frame.render_widget(
         Paragraph::new(action_lines)
-            .block(Block::default().borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(" Today ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(if today_recorded {
+                        Color::Green
+                    } else {
+                        Color::Yellow
+                    })),
+            )
             .wrap(ratatui::widgets::Wrap { trim: true }),
         areas.today,
     );
 
     let gauge = Gauge::default()
-        .block(Block::default().title(" Voyage ").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title(" Route progress ")
+                .borders(Borders::ALL),
+        )
         .gauge_style(
             Style::default()
                 .fg(Color::Yellow)
@@ -449,8 +481,8 @@ fn dashboard_areas(area: Rect) -> DashboardAreas {
     let root = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4),
-            Constraint::Min(14),
+            Constraint::Length(3),
+            Constraint::Min(16),
             Constraint::Length(3),
             Constraint::Length(7),
             Constraint::Length(1),
@@ -458,7 +490,7 @@ fn dashboard_areas(area: Rect) -> DashboardAreas {
         .split(area);
     let main = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .constraints([Constraint::Percentage(64), Constraint::Percentage(36)])
         .split(root[1]);
     DashboardAreas {
         header: root[0],
@@ -540,6 +572,27 @@ fn vessel_name(id: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn companion_stage_lines(dash: &Dashboard) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    lines.push(Line::raw(""));
+    lines.extend(ascii_ship_lines(dash.animation));
+    lines.push(Line::raw(""));
+    lines.push(Line::styled(
+        state_text(dash.animation),
+        Style::default()
+            .fg(animation_color(dash.animation))
+            .add_modifier(Modifier::BOLD),
+    ));
+    lines.push(Line::from(vec![
+        Span::styled("Route ", Style::default().fg(Color::DarkGray)),
+        Span::raw(format!("{} / {}", dash.position, dash.total_days)),
+        Span::raw("   "),
+        Span::styled("Vessel ", Style::default().fg(Color::DarkGray)),
+        Span::raw(vessel_name(&dash.current_vessel)),
+    ]));
+    lines
 }
 
 fn ascii_ship_lines(animation: VesselAnimation) -> Vec<Line<'static>> {

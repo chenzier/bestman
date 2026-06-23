@@ -51,6 +51,7 @@ q / Esc / Ctrl-C
 | `bestman --home <dir> init` | 初始化配置、事件日志和默认船 |
 | `bestman --home <dir> status` | 查看当前状态 |
 | `bestman --home <dir> status --json` | 输出 JSON 状态 |
+| `bestman --home <dir> reset --yes` | 清空该 home 下的本地数据 |
 | `bestman --home <dir> done --level full --dice 3` | 完成今日训练，推进航程 |
 | `bestman --home <dir> done --mock-llm` | 使用 mock LLM 生成航海日志 |
 | `bestman --home <dir> skip` | 记录休息/跳过 |

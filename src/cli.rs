@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
 use chrono::{Local, NaiveDate};
@@ -35,6 +35,10 @@ enum Command {
     Status {
         #[arg(long)]
         json: bool,
+    },
+    Reset {
+        #[arg(long)]
+        yes: bool,
     },
     Done {
         #[arg(long, value_enum, default_value_t = LevelArg::Normal)]
@@ -157,6 +161,9 @@ pub fn run() -> Result<()> {
             } else {
                 print_dashboard(&app, &dash);
             }
+        }
+        Command::Reset { yes } => {
+            reset_home(&paths.home, yes)?;
         }
         Command::Done {
             level,
@@ -343,6 +350,23 @@ fn resolve_home(home: Option<PathBuf>) -> Result<PathBuf> {
 
 fn today() -> NaiveDate {
     Local::now().date_naive()
+}
+
+fn reset_home(home: &Path, yes: bool) -> Result<()> {
+    if !yes {
+        bail!(
+            "reset deletes all bestman data under {}. Re-run with --yes to confirm.",
+            home.display()
+        );
+    }
+    if home.parent().is_none() {
+        bail!("refusing to reset filesystem root");
+    }
+    if home.exists() {
+        std::fs::remove_dir_all(home)?;
+    }
+    println!("bestman data reset: {}", home.display());
+    Ok(())
 }
 
 fn print_dashboard(app: &BestmanApp, dash: &crate::projection::Dashboard) {

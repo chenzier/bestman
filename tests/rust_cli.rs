@@ -107,6 +107,50 @@ fn cli_rejects_second_check_in_on_same_day() {
 }
 
 #[test]
+fn cli_reset_requires_confirmation_and_clears_home() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "done", "--dice", "2"])
+        .assert()
+        .success();
+    assert!(home.join("events.jsonl").exists());
+    assert!(home.join("bestman.db").exists());
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "reset"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Re-run with --yes"));
+    assert!(home.join("events.jsonl").exists());
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "reset", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bestman data reset"));
+    assert!(!home.exists());
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "status", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"initialized\": false"))
+        .stdout(predicate::str::contains("\"position\": 0"));
+}
+
+#[test]
 fn cli_preview_writes_png() {
     let dir = tempdir().unwrap();
     let output = dir.path().join("ship.png");

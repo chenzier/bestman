@@ -55,6 +55,7 @@ Rust CLI/TUI
 | 今日任务展示 | 已落地 |
 | 同日重复打卡保护 | 已落地 |
 | 打卡即时反馈 | 已落地 |
+| `reset --yes` 开发期数据清理 | 已落地 |
 | `bestman` 二进制入口 | 已落地 |
 | Rust 测试 | 已落地 |
 
@@ -168,7 +169,7 @@ Rust CLI/TUI
 | 随机事件 | 重做 | v2/v3 | 不能抢核心打卡体验，必须 deterministic replay |
 | 宝藏系统 | 重做 | v1.1/v1.2 | 保留为宠物船奖励/动画触发，不做地图主玩法 |
 | skip token | 重做 | v1.1 | 当前只做 rest/skip；后续再补“休息不羞辱”的更细规则 |
-| `reset` | 必须补 | v1.x | 需要安全确认，支持清空指定 `--home` 数据 |
+| `reset` | 已迁回 | v1.0 | `reset --yes` 清空指定 `--home` 数据 |
 | `config dice-mode` / 配置命令 | 暂缓 | v2 | 当前先用 `config.toml`，后续只暴露高频安全配置 |
 | crew / 船员 / 港口 | 远期 | [crew.md](crew.md) | 降级为叙事扩展，不做 v1 主线 |
 | `eat` 饮食记录 | 远期 | [diet.md](diet.md) | 可选非审判式记录 |
