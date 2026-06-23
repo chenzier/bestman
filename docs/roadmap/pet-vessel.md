@@ -117,7 +117,7 @@ v1.2 的目标不是“多几张图”，而是做成真正的收集闭环：
 
 ### 第一批 5 艘内置船
 
-旧 Python 版已有 `schooner / dragon / ghost / sword / yinglong` 预设。新版不直接恢复旧 theme system，而是保留精神、统一重做为宠物船资产：
+早期 prototype 已有 `schooner / dragon / ghost / sword / yinglong` 预设。新版不直接恢复旧 theme system，而是保留精神、统一重做为宠物船资产：
 
 | id | 旧预设来源 | 新版定位 | rarity | price |
 |------|------|------|------|------|

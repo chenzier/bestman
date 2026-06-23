@@ -1,9 +1,9 @@
 # bestman 技术路线
 
 > 最后更新：2026-06-23  
-> 当前主线：Rust-first / v3.x backlog after recap
+> 当前主线：Rust-only / v3.x backlog after recap
 
-bestman 当前主入口是仓库根目录的 Rust 实现 `bestman`。旧 Python 版保留为 legacy/prototype 参考，不再作为新功能主线。
+bestman 当前主入口是仓库根目录的 Rust 实现 `bestman`。早期 Python prototype 已从主线代码中移除；历史方案保留在 `docs/superpowers/` 和 git 历史中。
 
 技术路线已按当前方向重写，见 [roadmap/](roadmap/)：
 

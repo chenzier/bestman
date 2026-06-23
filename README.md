@@ -2,7 +2,7 @@
 
 把健身打卡做成一个宠物船陪伴系统。
 
-当前主入口是 **Rust 版 `bestman`**。Python 版仍保留在仓库中，但只作为 legacy/prototype 参考，不再作为新功能主线。
+当前主入口是 **Rust 版 `bestman`**。早期 Python prototype 已从主线代码中移除；如需追溯旧实现，请查看 git 历史或 `docs/superpowers/` 中的历史方案。
 
 ## 当前定位
 
@@ -175,24 +175,6 @@ src/terminal_image.rs # Kitty/Sixel 探测与 Kitty 图片协议
 - SQLite 是 projection，不是事实来源。
 - `events.jsonl` 是事实来源。
 - 船只表现由 spritesheet + manifest 驱动。
-
-## Python Legacy
-
-`bestman/` 目录里的 Python 实现是早期 prototype，包含旧 CLI、地图、主题、计划和 LLM 探索代码。
-
-现阶段约定：
-
-- 新功能优先进入 Rust 版。
-- Python 版不再作为用户主入口。
-- Python 版可作为需求/玩法参考，但不要和 Rust 版并行扩新架构。
-- 旧 Python 测试仍可保留，用于理解历史行为。
-
-如果确实需要运行旧 Python prototype：
-
-```bash
-uv sync
-uv run bestman --help
-```
 
 ## 验证
 

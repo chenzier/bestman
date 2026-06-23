@@ -1,7 +1,7 @@
 # bestman 技术路线 · 总览
 
 > 最后更新：2026-06-23  
-> 当前阶段：Rust v3.0 长期回顾已收口，下一主线是 v3.x 叙事 backlog
+> 当前阶段：Rust-only 主线，v3.x 叙事 backlog
 
 ## 产品定位
 
@@ -65,6 +65,7 @@ Rust CLI/TUI
 | OpenAI-compatible LLM 航海日志接口 | 已落地，有 template fallback |
 | `recap` 长期回顾 | 已落地，有 LLM/template fallback |
 | Rust 测试 | 已落地 |
+| Python prototype 移除 | 已落地 |
 
 ## 版本阶段
 
@@ -86,7 +87,7 @@ Rust CLI/TUI
 
 - `bestman` 命令指向 Rust 版，`cargo run` 默认运行 `bestman`。
 - README / 命令说明改成 Rust 版。
-- Python 版标为 legacy/prototype，不再并行扩新功能。
+- 早期 Python prototype 已移除，避免双系统并行演化。
 - TUI 首屏聚焦当前宠物船和今日任务。
 - 同日重复打卡/休息有明确策略。
 - 打卡后即时反馈：进度、金币、心情、信任、日志。
@@ -113,7 +114,7 @@ Rust CLI/TUI
 - 第一版是 **纯视觉差异**：船只不提供金币、心情、航速等数值加成。
 - schema 预留 `traits/effects`，但 v1.2 不启用。
 - 第一批 5 艘船全部手工/硬编码资产，不接 LLM 生成。
-- 基于旧 Python 预设精神重做，不恢复全局 `naval/cultivation` 主题系统。
+- 基于早期 prototype 预设精神重做，不恢复全局 `naval/cultivation` 主题系统。
 - TUI 首屏只显示当前船，不显示 `Fleet 1/5` 之类收集进度。
 
 第一批内置船：
@@ -173,7 +174,7 @@ Rust CLI/TUI
 
 ## 关键设计决策
 
-1. **Rust 是主入口**：Python 版是 legacy/prototype，不并行扩新功能。
+1. **Rust 是唯一主入口**：早期 Python prototype 已移除，不并行扩新功能。
 2. **宠物船优先**：地图是背景，船是每日体验中心。
 3. **规则拥有状态**：金币、心情、信任、位置只能由 deterministic rules 改。
 4. **LLM 只写叙事**：LLM 不参与状态计算，不决定奖励。
@@ -188,7 +189,7 @@ Rust CLI/TUI
 
 以下旧路线已降级，不应优先实现：
 
-- Python CLI 继续扩展新功能
+- 恢复 Python CLI 作为产品入口
 - 地图作为核心玩法
 - 复杂船员招募/升级/任务系统
 - 每周任务和 XP 数值追踪
@@ -196,9 +197,9 @@ Rust CLI/TUI
 
 这些想法可以保留为 backlog，但必须等 v1 宠物船主体验稳定后再评估。
 
-## Python legacy 功能归类
+## 已移除 prototype 的功能归类
 
-转 Rust 后，旧 Python 功能不直接照搬。统一按三类处理：
+早期 Python prototype 已从主线代码中移除。旧功能不直接照搬，统一按三类处理：
 
 | 旧功能 | 当前归类 | 路线位置 | 处理方式 |
 |------|------|------|------|
