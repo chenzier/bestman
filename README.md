@@ -1,105 +1,180 @@
 # bestman
 
-把健身变成一个航海游戏。
+把健身打卡做成一个宠物船陪伴系统。
 
-一个 Python CLI 工具。每天完成训练任务 → 掷骰子在大海地图上前进 → AI 导航员帮你写航海日志。用游戏机制对抗拖延症。
+当前主入口是 **Rust 版 `bestman-rs`**。Python 版仍保留在仓库中，但只作为 legacy/prototype 参考，不再作为新功能主线。
 
-## 核心玩法
+## 当前定位
 
+bestman 的核心不再是“航海地图游戏”，而是“宠物船陪伴 + 健身打卡”：
+
+```text
+每天训练打卡 -> 宠物船状态变化 -> 航线进度推进 -> 航海日志与奖励
 ```
-每天打卡训练  →  掷骰子推进 1-6 格  →  在像素地图上前进  →  航行日志 + 金币 + 宝藏
-```
 
-地图上有迷雾、阶段、里程碑和随机事件。连续打卡有连击奖励，可以用「跳过令牌」休息一天不打断连击。
+地图只表达长期进度；宠物船是主要体验。
 
-## 安装
+## 安装与运行
 
-需要 Python 3.12+。
+需要 Rust toolchain。
 
 ```bash
 git clone https://github.com/chenzier/bestman.git
 cd bestman
-uv sync
+cargo run -- --home /tmp/bestman-demo init
+cargo run -- --home /tmp/bestman-demo tui
 ```
 
-或者用 pip：
+实时 TUI：
 
 ```bash
-pip install -e .
+cargo run -- --home /tmp/bestman-demo tui --live
 ```
 
-## 快速上手
+如果终端支持 Kitty/Ghostty/WezTerm 图片协议，可以启用图片船：
 
 ```bash
-bestman init         # 初始化航行
-bestman done         # 完成今日训练，掷骰子前进
-bestman              # 查看仪表盘（地图 + 进度 + 今日任务）
-bestman log          # 查看航海日志
+cargo run -- --home /tmp/bestman-demo tui --live --images
 ```
 
-## 命令速览
+退出实时 TUI：
+
+```text
+q / Esc / Ctrl-C
+```
+
+## 常用命令
 
 | 命令 | 说明 |
 |------|------|
-| `bestman` | 查看仪表盘（像素地图 + 今日任务 + 进度） |
-| `bestman init` | 初始化航行数据 |
-| `bestman done` | 完成今日训练，掷骰推进 |
-| `bestman done --mode interactive` | 互动掷骰模式（按键停止，更有参与感） |
-| `bestman done -e N` | 掷骰结果 + 手动额外 N 格 |
-| `bestman done -m "内容"` | 手动写日志（跳过 AI 生成） |
-| `bestman skip` | 使用跳过令牌休息一天，不中断连击 |
-| `bestman log` | 查看航海日志 |
-| `bestman talk` | 与 AI 导航员对话（可调整训练计划） |
-| `bestman plan create` | 交互式制定健身计划（减肥 / 增肌 / 自定义） |
-| `bestman plan show` | 查看当前计划 |
-| `bestman plan edit` | 用编辑器修改计划 |
-| `bestman weigh 70.5` | 记录体重 |
-| `bestman progress` | 查看体重趋势和预计达标日期 |
-| `bestman review` | 本周回顾（打卡率 + 航行距离 + AI 总结） |
-| `bestman map` | 查看完整航行地图和阶段进度 |
-| `bestman vessel list` | 查看可切换的载具 |
-| `bestman vessel set <名称>` | 切换载具（不同外观） |
-| `bestman config dice-mode` | 查看 / 切换骰子模式 |
-| `bestman reset` | 重置所有数据 |
+| `cargo run -- --home <dir> init` | 初始化配置、事件日志和默认船 |
+| `cargo run -- --home <dir> status` | 查看当前状态 |
+| `cargo run -- --home <dir> status --json` | 输出 JSON 状态 |
+| `cargo run -- --home <dir> done --level full --dice 3` | 完成今日训练，推进航程 |
+| `cargo run -- --home <dir> done --mock-llm` | 使用 mock LLM 生成航海日志 |
+| `cargo run -- --home <dir> skip` | 记录休息/跳过 |
+| `cargo run -- --home <dir> log` | 查看最新航海日志 |
+| `cargo run -- --home <dir> vessel list` | 查看可用船只 |
+| `cargo run -- --home <dir> vessel set <id>` | 切换当前船只 |
+| `cargo run -- --home <dir> shop buy <item_id>` | 购买简单商店物品 |
+| `cargo run -- --home <dir> tui` | 打开静态宠物船面板 |
+| `cargo run -- --home <dir> tui --live --images` | 打开实时宠物船 TUI |
+| `cargo run -- preview --animation sailing --output /tmp/ship.png` | 导出船只预览 PNG |
+| `cargo run -- --home <dir> dashboard-image --output /tmp/dashboard.png` | 导出 dashboard PNG |
+| `cargo run -- animation-frames --animation sailing --output-dir /tmp/frames` | 导出船只动画帧 |
+| `cargo run -- --home <dir> dashboard-frames --output-dir /tmp/dashboard-frames` | 导出 dashboard 动画帧 |
 
-## 配置
+实时 TUI 按键：
 
-### LLM（AI 导航员）
+| 按键 | 说明 |
+|------|------|
+| `L` | light 打卡 |
+| `N` | normal 打卡 |
+| `F` | full 打卡 |
+| `S` | rest/skip |
+| `Q` / `Esc` / `Ctrl-C` | 退出 |
 
-在 `~/.bestman/.env` 中配置 OpenAI 兼容接口：
+## 数据目录
+
+`--home <dir>` 指定 bestman 的运行时数据目录。目录结构：
+
+```text
+<home>/
+  config.toml       # 配置
+  events.jsonl      # append-only 事件日志
+  bestman.db        # SQLite 投影，可从 events.jsonl 重建
+  cache/            # 船只帧缓存
+  vessels/          # 用户自定义船只
+```
+
+不传 `--home` 时会使用系统应用数据目录。开发时建议显式传入临时目录，避免污染真实数据：
 
 ```bash
-OPENAI_API_KEY=sk-xxx
-OPENAI_BASE_URL=https://api.deepseek.com   # 或其他兼容 API
-LLM_MODEL=deepseek-v4-pro
+cargo run -- --home /tmp/bestman-demo status
 ```
 
-不配置 LLM 也能正常使用——`done` 会用模板生成日志，`plan create` / `talk` 等功能需要 LLM。
+## 船只资产
 
-### 主题
+内置默认船：
 
-内置两套主题：
-
-- `naval`（默认）—— 航海主题，船、海域、金币、宝藏
-- `cultivation` —— 修仙主题，飞剑、洞府、灵石
-
-修改 `~/.bestman/config.yaml` 中 `voyage.theme` 字段即可切换。
-
-### 自定义配置
-
-初始化后 `~/.bestman/config.yaml` 包含完整默认配置：地图大小、航程天数、阶段划分、里程碑、骰子权重、金币规则、随机事件、宝藏等。直接编辑即可。
-
-## 原理
-
-```
-bestman/           ← CLI 源码
-~/.bestman/        ← 运行时数据（config.yaml、plan.yaml、SQLite 数据库）
+```text
+assets/vessels/starter_sloop/
+  vessel.json
+  spritesheet.png
 ```
 
-地图用 Kitty 终端协议渲染为像素 PNG，支持 ASCII 降级。245 个测试覆盖核心逻辑。
+每艘船由 manifest + spritesheet 组成。manifest 描述船只 ID、显示名、帧尺寸和动画序列。用户自定义船只放在：
 
-## 进阶文档
+```text
+<home>/vessels/<vessel-id>/vessel.json
+<home>/vessels/<vessel-id>/spritesheet.png
+```
 
-- [CHANGELOG.md](./CHANGELOG.md) — 版本变更记录
-- [docs/ROADMAP.md](./docs/ROADMAP.md) — 路线图
-- [docs/superpowers/](./docs/superpowers/) — 设计文档和实现计划
+当前会校验 manifest，并拒绝 spritesheet 路径逃逸。
+
+## 架构
+
+Rust 版采用：
+
+```text
+src/events.rs       # append-only 事件源
+src/projection.rs   # SQLite 当前状态投影
+src/rules.rs        # 打卡、休息、购买、换船规则
+src/vessels/        # 船只 catalog / manifest / frame rendering
+src/tui.rs          # 宠物船 TUI
+src/dashboard.rs    # dashboard PNG 导出
+src/terminal_image.rs # Kitty/Sixel 探测与 Kitty 图片协议
+```
+
+关键边界：
+
+- 规则系统拥有状态变更权。
+- LLM 只生成叙事，不直接改金币、心情、位置等状态。
+- SQLite 是 projection，不是事实来源。
+- `events.jsonl` 是事实来源。
+- 船只表现由 spritesheet + manifest 驱动。
+
+## Python Legacy
+
+`bestman/` 目录里的 Python 实现是早期 prototype，包含旧 CLI、地图、主题、计划和 LLM 探索代码。
+
+现阶段约定：
+
+- 新功能优先进入 Rust 版。
+- Python 版不再作为用户主入口。
+- Python 版可作为需求/玩法参考，但不要和 Rust 版并行扩新架构。
+- 旧 Python 测试仍可保留，用于理解历史行为。
+
+如果确实需要运行旧 Python prototype：
+
+```bash
+uv sync
+uv run bestman --help
+```
+
+## 验证
+
+Rust 主线门禁：
+
+```bash
+cargo fmt --check
+cargo test
+```
+
+当前测试覆盖：
+
+- 事件重放与 SQLite 投影
+- 打卡/休息/购买/换船规则
+- mock LLM 日志替换
+- vessel manifest 校验和路径逃逸拒绝
+- 船只预览、动画帧、dashboard PNG 导出
+- Kitty 图片协议编码
+- TUI 静态/实时/scripted 输入和退出
+
+## 后续重点
+
+1. 把 Rust CLI 打包成真正的 `bestman` 二进制，而不是长期依赖 `cargo run`。
+2. 补今日任务展示、同日重复打卡策略和更清晰的打卡反馈。
+3. 完善船只 ownership/equipped/shop 解锁模型。
+4. 优化 TUI 图片定位和首屏引导。
+5. 接入真实 LLM 日志生成，并保留 template fallback。
