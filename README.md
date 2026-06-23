@@ -51,6 +51,8 @@ q / Esc / Ctrl-C
 | `bestman --home <dir> init` | 初始化配置、事件日志和默认船 |
 | `bestman --home <dir> status` | 查看当前状态 |
 | `bestman --home <dir> status --json` | 输出 JSON 状态 |
+| `bestman --home <dir> config show` | 只读展示当前安全配置 |
+| `bestman --home <dir> rebuild` | 从 `events.jsonl` 重建 SQLite projection |
 | `bestman --home <dir> reset --yes` | 清空该 home 下的本地数据 |
 | `bestman --home <dir> done --level full --dice 3` | 完成今日训练，推进航程 |
 | `bestman --home <dir> done --mock-llm` | 使用 mock LLM 生成航海日志 |
@@ -187,6 +189,14 @@ cargo fmt --check
 cargo test
 ```
 
+发布或排障前可额外运行：
+
+```bash
+bestman --home /tmp/bestman-demo config show
+bestman --home /tmp/bestman-demo rebuild
+bestman --home /tmp/bestman-demo vessel validate
+```
+
 当前测试覆盖：
 
 - 事件重放与 SQLite 投影
@@ -200,5 +210,5 @@ cargo test
 ## 后续重点
 
 1. v3.x 叙事扩展：里程碑史诗、可选船员/角色。
-2. `bestman config show` 和安全的高频配置命令。
+2. 高频安全配置命令。
 3. 发布包和升级说明。

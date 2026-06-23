@@ -77,6 +77,8 @@ v1 已有：
 
 - `bestman` 命令指向 Rust 版。
 - README 不再要求用户长期使用 `cargo run`。
+- `bestman rebuild` 可从事件源重建 SQLite projection。
+- `bestman vessel validate [id]` 可校验已注册船只资产。
 
 后续需要：
 
@@ -91,10 +93,11 @@ v1 已有：
 已落地：
 
 - `bestman reset --yes`：只清空当前 `--home`，必须显式确认。
+- `bestman config show`：只读展示当前安全配置。
+- `bestman rebuild`：显式从 `events.jsonl` 重建 `bestman.db` projection。
 
 需要补：
 
-- `bestman config show`：只读展示安全配置。
 - 高频配置命令：例如默认任务、总天数、休息日。
 
 暂缓：

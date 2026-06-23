@@ -204,6 +204,59 @@ fn cli_reset_requires_confirmation_and_clears_home() {
 }
 
 #[test]
+fn cli_config_show_and_rebuild_projection_work() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "init",
+            "--daily-task",
+            "划船机 20 分钟",
+            "--total-days",
+            "30",
+        ])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("total_days = 30"))
+        .stdout(predicate::str::contains("daily_task = \"划船机 20 分钟\""))
+        .stdout(predicate::str::contains("api_key_env = \"OPENAI_API_KEY\""));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "done", "--dice", "2"])
+        .assert()
+        .success();
+    std::fs::remove_file(home.join("bestman.db")).unwrap();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "rebuild"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("projection rebuilt"))
+        .stdout(predicate::str::contains("events: 2"))
+        .stdout(predicate::str::contains("position: 2/30"));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "status", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"position\": 2"))
+        .stdout(predicate::str::contains("\"coins\": 10"));
+}
+
+#[test]
 fn cli_lists_builtin_catalog_and_blocks_unowned_vessel_equip() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");

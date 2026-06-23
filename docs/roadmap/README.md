@@ -66,6 +66,7 @@ Rust CLI/TUI
 | 本地轻量训练计划 | 已落地 |
 | OpenAI-compatible LLM 航海日志接口 | 已落地，有 template fallback |
 | `recap` 长期回顾 | 已落地，有 LLM/template fallback |
+| `config show` / `rebuild` / `vessel validate` | 已落地 |
 | Rust 测试 | 已落地 |
 | Python prototype 移除 | 已落地 |
 

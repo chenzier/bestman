@@ -40,6 +40,11 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
+    Rebuild,
     Done {
         #[arg(long, value_enum, default_value_t = LevelArg::Normal)]
         level: LevelArg,
@@ -139,6 +144,11 @@ enum ShopCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum ConfigCommand {
+    Show,
+}
+
+#[derive(Debug, Subcommand)]
 enum PlanCommand {
     Create {
         #[arg(long)]
@@ -196,6 +206,23 @@ pub fn run() -> Result<()> {
         }
         Command::Reset { yes } => {
             reset_home(&paths.home, yes)?;
+        }
+        Command::Config { command } => match command {
+            ConfigCommand::Show => {
+                let app = BestmanApp::open(paths)?;
+                println!("{}", toml::to_string_pretty(&app.config)?.trim_end());
+            }
+        },
+        Command::Rebuild => {
+            let mut app = BestmanApp::open(paths)?;
+            let events = app.store.read_all()?;
+            let count = events.len();
+            app.projection.rebuild(events)?;
+            let dash = app.projection.dashboard()?;
+            println!("projection rebuilt");
+            println!("events: {count}");
+            println!("position: {}/{}", dash.position, dash.total_days);
+            println!("current_vessel: {}", dash.current_vessel);
         }
         Command::Done {
             level,
