@@ -110,6 +110,56 @@ fn cli_rejects_second_check_in_on_same_day() {
 }
 
 #[test]
+fn cli_skip_prints_companion_feedback() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+    std::fs::write(
+        home.join("config.toml"),
+        r#"[voyage]
+total_days = 120
+daily_task = "深蹲 3x15 + 平板支撑 3x30s"
+rest_days = []
+
+[companion]
+current_vessel = "starter_sloop"
+
+[llm]
+enabled = false
+provider = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+model = "gpt-4o-mini"
+prompt_version = "bestman-v2-narrative"
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "skip",
+            "--reason",
+            "tired",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Rest recorded"))
+        .stdout(predicate::str::contains("type: rest/skip"))
+        .stdout(predicate::str::contains("vessel state: resting"))
+        .stdout(predicate::str::contains("mood: -2 (60 -> 58)"))
+        .stdout(predicate::str::contains("streak: 0"))
+        .stdout(predicate::str::contains("log:"));
+}
+
+#[test]
 fn cli_reset_requires_confirmation_and_clears_home() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");

@@ -240,9 +240,11 @@ pub fn run() -> Result<()> {
             app.rebuild_projection()?;
             let dash = app.projection.dashboard()?;
             let event = rules::skip_or_rest_event(&app.config, &dash, today(), reason)?;
+            let feedback = skip_feedback(&event.kind, dash.mood);
             app.store.append(event)?;
             app.rebuild_projection()?;
-            println!("resting");
+            let dash = app.projection.dashboard()?;
+            print_skip_feedback(feedback, &dash);
         }
         Command::Log => {
             let mut app = BestmanApp::open(paths)?;
@@ -592,6 +594,14 @@ struct DoneFeedback {
     treasures: Vec<String>,
 }
 
+#[derive(Debug)]
+struct SkipFeedback {
+    kind: &'static str,
+    mood_delta: i32,
+    mood_before: i32,
+    animation: crate::events::VesselAnimation,
+}
+
 fn done_feedback(kind: &crate::events::EventKind) -> DoneFeedback {
     let crate::events::EventKind::DailyCheckInCompleted {
         level,
@@ -618,6 +628,28 @@ fn done_feedback(kind: &crate::events::EventKind) -> DoneFeedback {
         mood_delta: *mood_delta,
         milestones: milestones.clone(),
         treasures: treasures.clone(),
+    }
+}
+
+fn skip_feedback(kind: &crate::events::EventKind, mood_before: i32) -> SkipFeedback {
+    match kind {
+        crate::events::EventKind::DaySkipped {
+            mood_delta,
+            animation,
+            ..
+        } => SkipFeedback {
+            kind: "rest/skip",
+            mood_delta: *mood_delta,
+            mood_before,
+            animation: *animation,
+        },
+        crate::events::EventKind::RestDayObserved { animation, .. } => SkipFeedback {
+            kind: "planned rest",
+            mood_delta: 0,
+            mood_before,
+            animation: *animation,
+        },
+        _ => unreachable!("skip feedback is only built from rest/skip events"),
     }
 }
 
@@ -654,11 +686,38 @@ fn print_done_feedback(
     }
 }
 
+fn print_skip_feedback(feedback: SkipFeedback, dash: &crate::projection::Dashboard) {
+    println!("Rest recorded");
+    println!("type: {}", feedback.kind);
+    println!("vessel state: {}", animation_label(feedback.animation));
+    println!(
+        "mood: {:+} ({} -> {})",
+        feedback.mood_delta, feedback.mood_before, dash.mood
+    );
+    println!("streak: {}", dash.streak);
+    if let Some(log) = &dash.latest_log {
+        println!("log: {log}");
+    }
+}
+
 fn level_label(level: CompletionLevel) -> &'static str {
     match level {
         CompletionLevel::Light => "light",
         CompletionLevel::Normal => "normal",
         CompletionLevel::Full => "full",
+    }
+}
+
+fn animation_label(animation: crate::events::VesselAnimation) -> &'static str {
+    match animation {
+        crate::events::VesselAnimation::Idle => "idle",
+        crate::events::VesselAnimation::Waiting => "waiting",
+        crate::events::VesselAnimation::Sailing => "sailing",
+        crate::events::VesselAnimation::Happy => "happy",
+        crate::events::VesselAnimation::Resting => "resting",
+        crate::events::VesselAnimation::Celebrating => "celebrating",
+        crate::events::VesselAnimation::Treasure => "treasure",
+        crate::events::VesselAnimation::LowEnergy => "low_energy",
     }
 }
 
