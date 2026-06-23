@@ -59,6 +59,7 @@ q / Esc / Ctrl-C
 | `bestman --home <dir> done --llm` | 尝试真实 LLM 航海日志，失败时保留模板日志 |
 | `bestman --home <dir> skip` | 记录休息/跳过 |
 | `bestman --home <dir> log` | 查看最新航海日志 |
+| `bestman --home <dir> talk "今天有点累"` | 和船长聊天，只生成回复不改状态 |
 | `bestman --home <dir> recap` | 生成本地长期回顾并写入日志 |
 | `bestman --home <dir> recap --llm` | 尝试 LLM 长期回顾，失败时本地 fallback |
 | `bestman --home <dir> plan create --goal <goal> --tasks "A,B"` | 创建本地轻量训练计划 |

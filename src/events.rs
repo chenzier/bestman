@@ -96,6 +96,13 @@ pub enum EventKind {
         model: String,
         prompt_version: String,
     },
+    CaptainChatGenerated {
+        date: NaiveDate,
+        user_message: String,
+        text: String,
+        model: String,
+        prompt_version: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

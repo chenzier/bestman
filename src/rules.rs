@@ -290,6 +290,28 @@ pub fn milestone_epic_generated_event(
     }))
 }
 
+pub fn captain_chat_generated_event(
+    date: NaiveDate,
+    user_message: String,
+    text: String,
+    model: String,
+    prompt_version: String,
+) -> Result<StoredEvent> {
+    if user_message.trim().is_empty() {
+        bail!("chat message cannot be empty");
+    }
+    if text.trim().is_empty() {
+        bail!("captain chat text cannot be empty");
+    }
+    Ok(StoredEvent::new(EventKind::CaptainChatGenerated {
+        date,
+        user_message,
+        text,
+        model,
+        prompt_version,
+    }))
+}
+
 fn is_rest_day(config: &BestmanConfig, date: NaiveDate) -> bool {
     let weekday = date.weekday().to_string().to_lowercase();
     let short = &weekday[..3];

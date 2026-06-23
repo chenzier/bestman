@@ -111,6 +111,53 @@ fn cli_done_generates_milestone_epic_when_crossing_milestone() {
 }
 
 #[test]
+fn cli_talk_generates_captain_reply_without_state_changes() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "status", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"position\": 0"))
+        .stdout(predicate::str::contains("\"coins\": 0"));
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "talk",
+            "今天有点累，还要练吗？",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Captain:"))
+        .stdout(predicate::str::contains("轻量"));
+
+    let events = std::fs::read_to_string(home.join("events.jsonl")).unwrap();
+    assert!(events.contains("\"type\":\"captain_chat_generated\""));
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "status", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"position\": 0"))
+        .stdout(predicate::str::contains("\"coins\": 0"))
+        .stdout(predicate::str::contains(
+            "\"latest_log\": \"可以把今天降到轻量版",
+        ));
+}
+
+#[test]
 fn installed_binary_name_works_for_v1_entrypoint() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");

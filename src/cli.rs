@@ -66,6 +66,11 @@ enum Command {
         reason: String,
     },
     Log,
+    Talk {
+        message: String,
+        #[arg(long)]
+        llm: bool,
+    },
     Recap {
         #[arg(long)]
         llm: bool,
@@ -328,6 +333,27 @@ pub fn run() -> Result<()> {
                 "{}",
                 dash.latest_log.unwrap_or_else(|| "no logs".to_string())
             );
+        }
+        Command::Talk { message, llm } => {
+            let mut app = BestmanApp::open(paths)?;
+            app.rebuild_projection()?;
+            let dash = app.projection.dashboard()?;
+            let (text, model, prompt_version) = captain_chat_text(
+                &app.config.llm,
+                &dash,
+                &message,
+                llm || app.config.llm.enabled,
+            );
+            app.store.append(rules::captain_chat_generated_event(
+                today(),
+                message,
+                text.clone(),
+                model,
+                prompt_version,
+            )?)?;
+            app.rebuild_projection()?;
+            println!("Captain:");
+            println!("{text}");
         }
         Command::Recap { llm } => {
             let mut app = BestmanApp::open(paths)?;
@@ -945,6 +971,65 @@ fn local_milestone_epic(
         feedback.new_position,
         dash.total_days,
         dash.completed_days.saturating_add(1)
+    )
+}
+
+fn captain_chat_text(
+    llm_config: &crate::config::LlmConfig,
+    dash: &crate::projection::Dashboard,
+    message: &str,
+    use_llm: bool,
+) -> (String, String, String) {
+    let prompt = captain_chat_prompt(dash, message);
+    if use_llm {
+        match generate_narrative(llm_config, &prompt) {
+            Ok(generated) => {
+                return (generated.text, generated.model, generated.prompt_version);
+            }
+            Err(err) => {
+                eprintln!("LLM captain chat unavailable; generated local reply: {err}");
+            }
+        }
+    }
+    (
+        local_captain_chat(dash, message),
+        "template".to_string(),
+        "bestman-v3-captain-chat-template".to_string(),
+    )
+}
+
+fn captain_chat_prompt(dash: &crate::projection::Dashboard, message: &str) -> String {
+    format!(
+        "你是 bestman 宠物船的船长。用户说：{message}\n当前事实：今日任务 {}，位置 {}/{}，连续 {} 天，金币 {}，心情 {}，信任 {}，当前船 {}，计划目标 {}。\n请用 1-3 句中文回答，温和、具体、不过度鸡血。只能聊天和建议，不要修改或承诺修改金币、位置、心情、信任、船只、计划或任务。",
+        dash.daily_task,
+        dash.position,
+        dash.total_days,
+        dash.streak,
+        dash.coins,
+        dash.mood,
+        dash.trust,
+        dash.current_vessel,
+        dash.plan_goal.as_deref().unwrap_or("未设置")
+    )
+}
+
+fn local_captain_chat(dash: &crate::projection::Dashboard, message: &str) -> String {
+    let lowered = message.to_lowercase();
+    if dash.last_action_date == Some(today()) {
+        return format!(
+            "今天已经记录过了。船长建议你把训练停在这里，最多做 5 分钟拉伸；{} 会在港口把灯留着。",
+            dash.current_vessel
+        );
+    }
+    if lowered.contains("累") || lowered.contains("tired") || lowered.contains("疲") {
+        return format!(
+            "可以把今天降到轻量版：{}。船长不会催你加量，先把节奏接住。",
+            dash.daily_task
+        );
+    }
+    format!(
+        "船长看了今天的任务：{}。先做最小可完成的一组，完成后再决定要不要继续。",
+        dash.daily_task
     )
 }
 

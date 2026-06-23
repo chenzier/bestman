@@ -250,6 +250,12 @@ impl Projection {
                         params![event.id.to_string(), date.to_string(), text],
                     )?;
                 }
+                EventKind::CaptainChatGenerated { date, text, .. } => {
+                    tx.execute(
+                        "INSERT OR REPLACE INTO logs (event_id,date,text,source) VALUES (?,?,?,'captain_chat')",
+                        params![event.id.to_string(), date.to_string(), text],
+                    )?;
+                }
             }
         }
         tx.commit()?;

@@ -10,6 +10,7 @@
 
 - 航海日志生成。
 - `recap` 长期回顾。
+- `talk` 船长聊天。
 - provider/model/prompt version 配置。
 - template fallback。
 - LLM 失败不阻断打卡。
