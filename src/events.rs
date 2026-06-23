@@ -110,6 +110,13 @@ pub enum EventKind {
         weight_kg: f64,
         note: Option<String>,
     },
+    HealthAdviceGenerated {
+        date: NaiveDate,
+        user_message: String,
+        text: String,
+        model: String,
+        prompt_version: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

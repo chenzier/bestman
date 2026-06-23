@@ -216,6 +216,51 @@ fn cli_weigh_records_replayable_weight_progress() {
 }
 
 #[test]
+fn cli_advice_generates_health_advice_without_state_changes() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "weigh", "101.2"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "advice",
+            "膝盖有点不舒服，今天怎么练？",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Health Advice:"))
+        .stdout(predicate::str::contains("低冲击"))
+        .stdout(predicate::str::contains("专业人士"));
+
+    let events = std::fs::read_to_string(home.join("events.jsonl")).unwrap();
+    assert!(events.contains("\"type\":\"health_advice_generated\""));
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "status", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"position\": 0"))
+        .stdout(predicate::str::contains("\"coins\": 0"))
+        .stdout(predicate::str::contains("\"weight_kg\": 101.2"))
+        .stdout(predicate::str::contains("\"latest_log\": \"今天先避开"));
+}
+
+#[test]
 fn installed_binary_name_works_for_v1_entrypoint() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");

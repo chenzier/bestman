@@ -69,6 +69,7 @@ Rust CLI/TUI
 | 里程碑史诗 | 已落地，到达里程碑时自动写入日志 |
 | `talk` 船长聊天 | 已落地，只生成回复不改状态 |
 | `weigh` / `progress` 体重记录 | 已落地，事件源 + SQLite projection |
+| `advice` 低风险健康建议 | 已落地，有 LLM/template fallback，不做诊断 |
 | `config show` / `rebuild` / `vessel validate` | 已落地 |
 | Rust 测试 | 已落地 |
 | Python prototype 移除 | 已落地 |
@@ -199,10 +200,17 @@ Rust CLI/TUI
 - `WeightRecorded` 事件可通过 SQLite projection 重建。
 - 不做诊断，不给高风险医疗建议。
 
+### v3.5 — 低风险健康建议（已完成）
+
+- `advice <message> [--llm]` 根据当前任务、体重记录和用户描述生成建议。
+- 支持 LLM/template fallback。
+- 建议写入事件和日志 projection，可重建。
+- 不做诊断，不自动改计划、金币、位置、心情、信任或体重。
+
 ### v3.x — 后续叙事 backlog
 
 - 船员/角色作为叙事扩展，而不是核心养成。
-- 饮食、伤病建议作为可选模块。
+- 饮食作为可选模块。
 - 地图动态效果、创意工坊、社区资产市场。
 - 更细粒度的自动回顾调度。
 

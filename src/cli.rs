@@ -77,6 +77,11 @@ enum Command {
         note: Option<String>,
     },
     Progress,
+    Advice {
+        message: String,
+        #[arg(long)]
+        llm: bool,
+    },
     Recap {
         #[arg(long)]
         llm: bool,
@@ -384,6 +389,27 @@ pub fn run() -> Result<()> {
             app.rebuild_projection()?;
             let dash = app.projection.dashboard()?;
             print_weight_progress(&dash);
+        }
+        Command::Advice { message, llm } => {
+            let mut app = BestmanApp::open(paths)?;
+            app.rebuild_projection()?;
+            let dash = app.projection.dashboard()?;
+            let (text, model, prompt_version) = health_advice_text(
+                &app.config.llm,
+                &dash,
+                &message,
+                llm || app.config.llm.enabled,
+            );
+            app.store.append(rules::health_advice_generated_event(
+                today(),
+                message,
+                text.clone(),
+                model,
+                prompt_version,
+            )?)?;
+            app.rebuild_projection()?;
+            println!("Health Advice:");
+            println!("{text}");
         }
         Command::Recap { llm, period } => {
             let mut app = BestmanApp::open(paths)?;
@@ -1153,6 +1179,88 @@ fn local_captain_chat(dash: &crate::projection::Dashboard, message: &str) -> Str
         "船长看了今天的任务：{}。先做最小可完成的一组，完成后再决定要不要继续。",
         dash.daily_task
     )
+}
+
+fn health_advice_text(
+    llm_config: &crate::config::LlmConfig,
+    dash: &crate::projection::Dashboard,
+    message: &str,
+    use_llm: bool,
+) -> (String, String, String) {
+    let prompt = health_advice_prompt(dash, message);
+    if use_llm {
+        match generate_narrative(llm_config, &prompt) {
+            Ok(generated) => {
+                return (generated.text, generated.model, generated.prompt_version);
+            }
+            Err(err) => {
+                eprintln!("LLM health advice unavailable; generated local advice: {err}");
+            }
+        }
+    }
+    (
+        local_health_advice(dash, message),
+        "template".to_string(),
+        "bestman-v3-health-advice-template".to_string(),
+    )
+}
+
+fn health_advice_prompt(dash: &crate::projection::Dashboard, message: &str) -> String {
+    let weight = dash
+        .latest_weight
+        .as_ref()
+        .map(|record| format!("{:.1}kg on {}", record.weight_kg, record.date))
+        .unwrap_or_else(|| "未记录".to_string());
+    let trend = weight_trend_summary(&dash.recent_weights).unwrap_or_else(|| "未记录".to_string());
+    format!(
+        "你是 bestman 的低风险健康建议助手。用户说：{message}\n事实：今日任务 {}，连续 {} 天，心情 {}，最新体重 {}，近期趋势 {}。\n请用 2-4 句中文给温和、具体、低风险建议。不要诊断，不要承诺治疗，不要给极端节食或高风险医疗建议；如果提到严重疼痛、胸痛、晕厥、麻木或受伤加重，明确建议停止训练并寻求专业帮助。只能建议，不修改计划、金币、位置、心情、信任或体重。",
+        dash.daily_task, dash.streak, dash.mood, weight, trend
+    )
+}
+
+fn local_health_advice(dash: &crate::projection::Dashboard, message: &str) -> String {
+    let lowered = message.to_lowercase();
+    let needs_professional_help = [
+        "严重疼",
+        "胸痛",
+        "晕",
+        "麻",
+        "受伤",
+        "sharp pain",
+        "chest pain",
+        "dizzy",
+        "numb",
+        "injury",
+    ]
+    .iter()
+    .any(|needle| lowered.contains(needle));
+    if needs_professional_help {
+        return "先停止今天的训练，不要硬撑。若有严重疼痛、胸痛、头晕、麻木或伤势加重，请尽快寻求专业医疗帮助；今天最多只保留轻柔活动或休息。".to_string();
+    }
+
+    if lowered.contains("膝") || lowered.contains("knee") {
+        return "今天先避开跳跃、冲刺和深蹲到底，改成低冲击版本：快走、髋桥或轻量拉伸。若膝盖疼痛持续或加重，停止训练并找专业人士评估。".to_string();
+    }
+
+    if lowered.contains("累")
+        || lowered.contains("疲")
+        || lowered.contains("tired")
+        || lowered.contains("fatigue")
+    {
+        return format!(
+            "把今天降到轻量版就够了：{}。目标是保住节奏，不是证明强度；睡眠和恢复比额外加量更重要。",
+            dash.daily_task
+        );
+    }
+
+    if let Some(trend) = weight_trend_summary(&dash.recent_weights) {
+        return format!(
+            "按当前记录看，{}。继续看 2-4 周趋势，不要被单日波动牵着走；今天先完成可持续的一小组。",
+            trend
+        );
+    }
+
+    "先从最小可完成版本开始：热身 5 分钟，再做一组今天任务。任何不适都可以降强度或休息，严重疼痛请找专业人士。".to_string()
 }
 
 fn catalog_kind_label(kind: CatalogItemKind) -> &'static str {

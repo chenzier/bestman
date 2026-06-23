@@ -380,6 +380,42 @@ fn weight_record_event_is_persisted_and_replays() {
 }
 
 #[test]
+fn health_advice_event_is_persisted_as_latest_log_and_replays() {
+    let config = BestmanConfig::default();
+    let dir = tempdir().unwrap();
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.store
+        .append(
+            rules::health_advice_generated_event(
+                NaiveDate::from_ymd_opt(2026, 6, 23).unwrap(),
+                "膝盖有点不舒服".to_string(),
+                "先降低冲击，不做诊断。".to_string(),
+                "template".to_string(),
+                "test-health".to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let before = app.projection.dashboard().unwrap();
+    assert_eq!(before.latest_log.as_deref(), Some("先降低冲击，不做诊断。"));
+
+    std::fs::remove_file(&app.paths.db).unwrap();
+    let events = app.store.read_all().unwrap();
+    let mut rebuilt = Projection::open(&app.paths.db).unwrap();
+    rebuilt.rebuild(events).unwrap();
+    assert_eq!(rebuilt.dashboard().unwrap(), before);
+}
+
+#[test]
 fn manifest_rejects_path_traversal() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("vessel.json");

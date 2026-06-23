@@ -282,6 +282,12 @@ impl Projection {
                         params![event.id.to_string(), date.to_string(), weight_kg, note],
                     )?;
                 }
+                EventKind::HealthAdviceGenerated { date, text, .. } => {
+                    tx.execute(
+                        "INSERT OR REPLACE INTO logs (event_id,date,text,source) VALUES (?,?,?,'health_advice')",
+                        params![event.id.to_string(), date.to_string(), text],
+                    )?;
+                }
             }
         }
         tx.commit()?;

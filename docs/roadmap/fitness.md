@@ -19,7 +19,14 @@ Rust 版当前只实现了每日打卡级别：
 - `WeightRecorded` 事件
 - SQLite projection 里的最新体重、最近记录和趋势摘要
 
-还没有伤病咨询、动作指导或 LLM 健康建议。
+已补回低风险健康建议：
+
+- `bestman advice "<message>"`
+- `HealthAdviceGenerated` 事件
+- LLM/template fallback
+- 明确不诊断、不自动改计划或规则状态
+
+还没有队医角色深度对话、动作指导库或医疗级伤病咨询。
 
 ## v1 目标
 
@@ -51,9 +58,9 @@ SQLite projection 维护：
 - 最近 N 次体重
 - 趋势摘要
 
-## v3 健康建议
+## v3 健康建议（已完成基础版）
 
-LLM 可以用于：
+LLM/template fallback 可用于：
 
 - 体重趋势的温和总结。
 - 训练动作替代建议。

@@ -62,6 +62,7 @@ q / Esc / Ctrl-C
 | `bestman --home <dir> talk "今天有点累"` | 和船长聊天，只生成回复不改状态 |
 | `bestman --home <dir> weigh 72.5 --note "morning"` | 记录体重，写入事件源 |
 | `bestman --home <dir> progress` | 查看最新体重、最近记录和温和趋势 |
+| `bestman --home <dir> advice "膝盖有点不舒服"` | 生成低风险健康建议，不做诊断不改状态 |
 | `bestman --home <dir> recap` | 生成本地长期回顾并写入日志 |
 | `bestman --home <dir> recap --period week` | 生成周/月/all-time 回顾 |
 | `bestman --home <dir> recap --llm` | 尝试 LLM 长期回顾，失败时本地 fallback |
@@ -213,6 +214,6 @@ bestman --home /tmp/bestman-demo vessel validate
 
 ## 后续重点
 
-1. v3.x 叙事扩展：可选船员/角色、健康建议。
+1. v3.x 叙事扩展：可选船员/角色、自动回顾调度。
 2. 高频安全配置命令。
 3. 发布包和升级说明。
