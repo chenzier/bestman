@@ -1,0 +1,49 @@
+{
+  "items": [
+    {
+      "id": "starter_sloop",
+      "kind": "vessel",
+      "rarity": "common",
+      "price": 0,
+      "unlock": { "type": "always" },
+      "assetPath": "assets/vessels/starter_sloop/vessel.json",
+      "tags": ["legacy-naval", "starter", "warm"]
+    },
+    {
+      "id": "dragon_prow",
+      "kind": "vessel",
+      "rarity": "uncommon",
+      "price": 80,
+      "unlock": { "type": "always" },
+      "assetPath": "assets/vessels/dragon_prow/vessel.json",
+      "tags": ["legacy-naval", "dragon", "bold"]
+    },
+    {
+      "id": "ghost_lantern",
+      "kind": "vessel",
+      "rarity": "rare",
+      "price": 140,
+      "unlock": { "type": "always" },
+      "assetPath": "assets/vessels/ghost_lantern/vessel.json",
+      "tags": ["legacy-naval", "ghost", "lantern"]
+    },
+    {
+      "id": "cloudblade_skiff",
+      "kind": "vessel",
+      "rarity": "rare",
+      "price": 220,
+      "unlock": { "type": "always" },
+      "assetPath": "assets/vessels/cloudblade_skiff/vessel.json",
+      "tags": ["legacy-cultivation", "blade", "cloud"]
+    },
+    {
+      "id": "yinglong_ark",
+      "kind": "vessel",
+      "rarity": "epic",
+      "price": 360,
+      "unlock": { "type": "always" },
+      "assetPath": "assets/vessels/yinglong_ark/vessel.json",
+      "tags": ["legacy-cultivation", "yinglong", "mythic"]
+    }
+  ]
+}

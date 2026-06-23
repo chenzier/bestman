@@ -50,6 +50,9 @@ fn cli_init_done_status_and_log_work() {
         .stdout(predicate::str::contains("\"position\": 3"))
         .stdout(predicate::str::contains("\"coins\": 12"))
         .stdout(predicate::str::contains(
+            "\"owned_vessels\": [\n    \"starter_sloop\"\n  ]",
+        ))
+        .stdout(predicate::str::contains(
             "\"last_action_kind\": \"check_in\"",
         ));
 
@@ -148,6 +151,56 @@ fn cli_reset_requires_confirmation_and_clears_home() {
         .success()
         .stdout(predicate::str::contains("\"initialized\": false"))
         .stdout(predicate::str::contains("\"position\": 0"));
+}
+
+#[test]
+fn cli_lists_builtin_catalog_and_blocks_unowned_vessel_equip() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "shop", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "starter_sloop - kind=vessel rarity=common price=0 owned",
+        ))
+        .stdout(predicate::str::contains(
+            "dragon_prow - kind=vessel rarity=uncommon price=80 available",
+        ))
+        .stdout(predicate::str::contains(
+            "yinglong_ark - kind=vessel rarity=epic price=360 available",
+        ));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "vessel", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("starter_sloop"))
+        .stdout(predicate::str::contains("[equipped]"))
+        .stdout(predicate::str::contains("dragon_prow"))
+        .stdout(predicate::str::contains("[locked]"));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "vessel",
+            "set",
+            "dragon_prow",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is not owned"));
 }
 
 #[test]
@@ -511,6 +564,23 @@ fn cli_loads_and_sets_custom_vessel() {
     let custom_dir = home.join("vessels/custom_sloop");
     std::fs::create_dir_all(&custom_dir).unwrap();
     std::fs::write(
+        home.join("catalog.json"),
+        r#"{
+            "items": [
+                {
+                    "id": "custom_sloop",
+                    "kind": "vessel",
+                    "rarity": "common",
+                    "price": 0,
+                    "unlock": { "type": "always" },
+                    "assetPath": "vessels/custom_sloop/vessel.json",
+                    "tags": ["test"]
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
         custom_dir.join("vessel.json"),
         r#"{
             "id":"custom_sloop",
@@ -539,7 +609,21 @@ fn cli_loads_and_sets_custom_vessel() {
         .args(["--home", home.to_str().unwrap(), "vessel", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("custom_sloop - Custom Sloop"));
+        .stdout(predicate::str::contains("custom_sloop - Custom Sloop"))
+        .stdout(predicate::str::contains("[locked]"));
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "shop",
+            "buy",
+            "custom_sloop",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("purchased custom_sloop"));
 
     Command::cargo_bin("bestman-rs")
         .unwrap()
@@ -551,7 +635,8 @@ fn cli_loads_and_sets_custom_vessel() {
             "custom_sloop",
         ])
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("vessel equipped"));
 
     Command::cargo_bin("bestman-rs")
         .unwrap()

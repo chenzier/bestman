@@ -3,9 +3,12 @@ use chrono::{Datelike, NaiveDate};
 use rand::Rng;
 
 use crate::config::BestmanConfig;
-use crate::events::{CoinAward, CompletionLevel, EventKind, StoredEvent, VesselAnimation};
+use crate::events::{
+    CoinAward, CompletionLevel, EventKind, ShopItemKind, StoredEvent, VesselAnimation,
+};
 use crate::map::milestone_names;
 use crate::projection::Dashboard;
+use crate::vessels::catalog::{CatalogItem, CatalogItemKind};
 
 pub fn init_event(config: &BestmanConfig, start_date: NaiveDate) -> StoredEvent {
     StoredEvent::new(EventKind::VoyageInitialized {
@@ -151,18 +154,32 @@ pub fn skip_or_rest_event(
     }
 }
 
-pub fn purchase_event(dashboard: &Dashboard, item_id: String, cost: i32) -> Result<StoredEvent> {
-    if dashboard.coins < cost {
+pub fn purchase_event(dashboard: &Dashboard, item: &CatalogItem) -> Result<StoredEvent> {
+    if item.kind != CatalogItemKind::Vessel {
+        bail!("only vessel shop items are supported in v1.2");
+    }
+    if dashboard.owned_items.iter().any(|owned| owned == &item.id) {
+        bail!("item {} is already owned", item.id);
+    }
+    if dashboard.coins < item.price {
         bail!("not enough coins");
     }
     Ok(StoredEvent::new(EventKind::ShopItemPurchased {
-        item_id,
-        cost,
+        item_id: item.id.clone(),
+        kind: ShopItemKind::Vessel,
+        cost: item.price,
     }))
 }
 
-pub fn change_vessel_event(vessel_id: String) -> StoredEvent {
-    StoredEvent::new(EventKind::VesselChanged { vessel_id })
+pub fn equip_vessel_event(dashboard: &Dashboard, vessel_id: String) -> Result<StoredEvent> {
+    if !dashboard
+        .owned_vessels
+        .iter()
+        .any(|owned| owned == &vessel_id)
+    {
+        bail!("vessel {vessel_id} is not owned");
+    }
+    Ok(StoredEvent::new(EventKind::VesselEquipped { vessel_id }))
 }
 
 pub fn narrative_generated_event(

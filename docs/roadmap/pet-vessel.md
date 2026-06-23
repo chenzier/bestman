@@ -27,6 +27,9 @@
 | dashboard PNG export | 已有，v1.1 已与 TUI 语言统一 |
 | 连续休整 low_energy 反馈 | 已有，不额外惩罚 |
 | 连续打卡宠物反馈 | 已有，7 天触发 happy，不额外发金币 |
+| catalog 注册式多船收集 | 已有 |
+| 5 艘内置宠物船 | 已有 |
+| ownership / equipped 投影 | 已有 |
 
 ## v1.1 已完成
 
@@ -104,7 +107,7 @@ v1.1 规则边界：
 - catalog 中的 `assetPath` 不得逃逸 catalog 根目录。
 - 未注册 catalog 的船不能进入商店、列表或装备流程。
 
-## v1.2 多船/商店
+## v1.2 多船/商店（已完成）
 
 v1.2 的目标不是“多几张图”，而是做成真正的收集闭环：
 
@@ -131,7 +134,7 @@ v1.2 的目标不是“多几张图”，而是做成真正的收集闭环：
 事实事件：
 
 ```text
-VesselPurchased { vessel_id, price }
+ShopItemPurchased { item_id, kind: vessel, cost }
 VesselEquipped { vessel_id }
 ```
 

@@ -54,8 +54,12 @@ pub enum EventKind {
     VesselChanged {
         vessel_id: String,
     },
+    VesselEquipped {
+        vessel_id: String,
+    },
     ShopItemPurchased {
         item_id: String,
+        kind: ShopItemKind,
         cost: i32,
     },
     NarrativeGenerated {
@@ -85,6 +89,15 @@ pub enum VesselAnimation {
     Celebrating,
     Treasure,
     LowEnergy,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ShopItemKind {
+    Vessel,
+    Skin,
+    Decoration,
+    Animation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

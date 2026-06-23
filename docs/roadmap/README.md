@@ -1,7 +1,7 @@
 # bestman 技术路线 · 总览
 
 > 最后更新：2026-06-23  
-> 当前阶段：Rust v1.1 宠物船体验已收口，下一主线是 v1.2 多船收集系统
+> 当前阶段：Rust v1.2 多船收集系统已收口，下一主线是 v2.0 训练计划与真实 LLM 叙事
 
 ## 产品定位
 
@@ -48,7 +48,8 @@ Rust CLI/TUI
 | mock LLM 航海日志 | 已落地 |
 | 默认宠物船 `starter_sloop` | 已落地 |
 | spritesheet + manifest 船只资产 | 已落地 |
-| 用户自定义 vessel 目录 | 已落地 |
+| catalog 注册式船只资产 | 已落地 |
+| 用户自定义 vessel experimental 注册 | 已落地 |
 | 静态 TUI / live TUI | 已落地 |
 | Kitty 图片帧输出 | 已落地，有文本 fallback |
 | PNG preview / dashboard / frame export | 已落地 |
@@ -57,6 +58,9 @@ Rust CLI/TUI
 | 打卡即时反馈 | 已落地 |
 | `reset --yes` 开发期数据清理 | 已落地 |
 | `bestman` 二进制入口 | 已落地 |
+| 5 艘内置宠物船 | 已落地 |
+| vessel ownership / equipped 投影 | 已落地 |
+| `shop list` / `shop buy` / `vessel list` / `vessel set` | 已落地 |
 | Rust 测试 | 已落地 |
 
 ## 版本阶段
@@ -97,7 +101,7 @@ Rust CLI/TUI
 - dashboard 文本/PNG 与 TUI 视觉语言统一，不再暴露 image path/protocol debug。
 - 不引入多船经济，不引入真实 LLM，不扩地图玩法。
 
-### v1.2 — 多船收集系统
+### v1.2 — 多船收集系统（已完成）
 
 目标：让 bestman 的“酷功能”成立：打卡赚金币，购买/装备不同宠物船，看到当前船明显变化。
 

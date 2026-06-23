@@ -1,7 +1,7 @@
 # bestman 技术路线
 
 > 最后更新：2026-06-23  
-> 当前主线：Rust-first / 多船收集-first
+> 当前主线：Rust-first / LLM narrative + plan next
 
 bestman 当前主入口是仓库根目录的 Rust 实现 `bestman`。旧 Python 版保留为 legacy/prototype 参考，不再作为新功能主线。
 
@@ -20,8 +20,8 @@ bestman 当前主入口是仓库根目录的 Rust 实现 `bestman`。旧 Python 
 
 当前短期目标：
 
-1. v1.2 多船收集：catalog、ownership/equipped、购买/装备事件。
-2. 基于旧 Python 预设精神重做 5 艘内置宠物船。
-3. `vessel.json` 只管渲染，`catalog.json` 管价格、稀有度、解锁。
+1. v2.0 训练计划与真实 LLM 叙事。
+2. LLM 只生成日志、总结和温柔反馈，不改状态。
+3. 本地轻量训练计划先落地，再接 LLM 建议。
 4. 事件源 + SQLite 投影保持为核心数据架构。
-5. 真实 LLM、地图、船员和主题市场全部后置。
+5. 地图、船员、主题市场和社区全部后置。

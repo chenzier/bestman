@@ -19,6 +19,8 @@ pub struct Dashboard {
     pub streak: u32,
     pub current_vessel: String,
     pub animation: VesselAnimation,
+    pub owned_items: Vec<String>,
+    pub owned_vessels: Vec<String>,
     pub last_action_date: Option<NaiveDate>,
     pub last_action_kind: Option<String>,
     pub latest_log: Option<String>,
@@ -67,6 +69,10 @@ impl Projection {
             CREATE TABLE IF NOT EXISTS purchases (
                 item_id TEXT PRIMARY KEY
             );
+            CREATE TABLE IF NOT EXISTS owned_items (
+                item_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL
+            );
             INSERT OR IGNORE INTO app_state (id) VALUES (1);
             "#,
         )?;
@@ -85,6 +91,7 @@ impl Projection {
         let tx = self.conn.transaction()?;
         tx.execute("DELETE FROM logs", [])?;
         tx.execute("DELETE FROM purchases", [])?;
+        tx.execute("DELETE FROM owned_items", [])?;
         tx.execute(
             "UPDATE app_state SET initialized=0,total_days=120,daily_task='未设置 - 运行 init 设置每日任务',position=0,completed_days=0,coins=0,trust=20,mood=60,streak=0,current_vessel='starter_sloop',animation='idle',last_action_date=NULL,last_action_kind=NULL WHERE id=1",
             [],
@@ -101,6 +108,10 @@ impl Projection {
                     tx.execute(
                         "UPDATE app_state SET initialized=1,total_days=?,daily_task=?,current_vessel=?,animation='waiting' WHERE id=1",
                         params![total_days, daily_task, vessel_id],
+                    )?;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO owned_items (item_id,kind) VALUES (?,'vessel')",
+                        params![vessel_id],
                     )?;
                 }
                 EventKind::DailyCheckInCompleted {
@@ -159,7 +170,17 @@ impl Projection {
                         params![vessel_id],
                     )?;
                 }
-                EventKind::ShopItemPurchased { item_id, cost } => {
+                EventKind::VesselEquipped { vessel_id } => {
+                    tx.execute(
+                        "UPDATE app_state SET current_vessel=?,animation='happy' WHERE id=1",
+                        params![vessel_id],
+                    )?;
+                }
+                EventKind::ShopItemPurchased {
+                    item_id,
+                    kind,
+                    cost,
+                } => {
                     tx.execute(
                         "UPDATE app_state SET coins=coins-? WHERE id=1",
                         params![cost],
@@ -167,6 +188,10 @@ impl Projection {
                     tx.execute(
                         "INSERT OR REPLACE INTO purchases (item_id) VALUES (?)",
                         params![item_id],
+                    )?;
+                    tx.execute(
+                        "INSERT OR REPLACE INTO owned_items (item_id,kind) VALUES (?,?)",
+                        params![item_id, shop_item_kind_name(kind)],
                     )?;
                 }
                 EventKind::NarrativeGenerated {
@@ -206,6 +231,8 @@ impl Projection {
                 current_vessel: row.get(9)?,
                 animation: animation_from_name(row.get::<_, String>(10)?.as_str())
                     .unwrap_or(VesselAnimation::Idle),
+                owned_items: Vec::new(),
+                owned_vessels: Vec::new(),
                 last_action_date,
                 last_action_kind: row.get(12)?,
                 latest_log: None,
@@ -220,7 +247,36 @@ impl Projection {
                 |row| row.get::<_, String>(0),
             )
             .ok();
-        Ok(Dashboard { latest_log, ..row })
+        let owned_items = self.query_owned_items(None)?;
+        let owned_vessels = self.query_owned_items(Some("vessel"))?;
+        Ok(Dashboard {
+            latest_log,
+            owned_items,
+            owned_vessels,
+            ..row
+        })
+    }
+
+    fn query_owned_items(&self, kind: Option<&str>) -> Result<Vec<String>> {
+        let sql = if kind.is_some() {
+            "SELECT item_id FROM owned_items WHERE kind=? ORDER BY item_id"
+        } else {
+            "SELECT item_id FROM owned_items ORDER BY item_id"
+        };
+        let mut stmt = self.conn.prepare(sql)?;
+        let mut out = Vec::new();
+        if let Some(kind) = kind {
+            let rows = stmt.query_map(params![kind], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                out.push(row?);
+            }
+        } else {
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                out.push(row?);
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -234,6 +290,15 @@ pub fn animation_name(animation: VesselAnimation) -> &'static str {
         VesselAnimation::Celebrating => "celebrating",
         VesselAnimation::Treasure => "treasure",
         VesselAnimation::LowEnergy => "low_energy",
+    }
+}
+
+fn shop_item_kind_name(kind: crate::events::ShopItemKind) -> &'static str {
+    match kind {
+        crate::events::ShopItemKind::Vessel => "vessel",
+        crate::events::ShopItemKind::Skin => "skin",
+        crate::events::ShopItemKind::Decoration => "decoration",
+        crate::events::ShopItemKind::Animation => "animation",
     }
 }
 

@@ -193,6 +193,23 @@ fn custom_vessel_catalog_and_frame_cache_work() {
     let custom_dir = dir.path().join("vessels/mock_boat");
     std::fs::create_dir_all(&custom_dir).unwrap();
     std::fs::write(
+        dir.path().join("catalog.json"),
+        r#"{
+            "items": [
+                {
+                    "id": "mock_boat",
+                    "kind": "vessel",
+                    "rarity": "common",
+                    "price": 0,
+                    "unlock": { "type": "always" },
+                    "assetPath": "vessels/mock_boat/vessel.json",
+                    "tags": ["test"]
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
         custom_dir.join("vessel.json"),
         r#"{
             "id":"mock_boat",
@@ -218,6 +235,86 @@ fn custom_vessel_catalog_and_frame_cache_work() {
     let img = image::open(frame).unwrap();
     assert_eq!(img.width(), 32);
     assert_eq!(img.height(), 32);
+}
+
+#[test]
+fn catalog_purchase_and_equip_replay_as_owned_vessel() {
+    let config = BestmanConfig::default();
+    let dir = tempdir().unwrap();
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    let catalog = VesselCatalog::load_with_user_dir(&app.paths.home.join("vessels")).unwrap();
+    let vessel_ids = catalog
+        .vessel_items()
+        .map(|item| item.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        vessel_ids,
+        vec![
+            "cloudblade_skiff",
+            "dragon_prow",
+            "ghost_lantern",
+            "starter_sloop",
+            "yinglong_ark"
+        ]
+    );
+
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    assert_eq!(
+        app.projection.dashboard().unwrap().owned_vessels,
+        vec!["starter_sloop".to_string()]
+    );
+
+    for day in 23..=30 {
+        let date = NaiveDate::from_ymd_opt(2026, 6, day).unwrap();
+        let dash = app.projection.dashboard().unwrap();
+        app.store
+            .append(
+                rules::check_in_event(
+                    &config,
+                    &dash,
+                    date,
+                    CompletionLevel::Full,
+                    "".to_string(),
+                    Some(1),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        app.rebuild_projection().unwrap();
+    }
+    let dash = app.projection.dashboard().unwrap();
+    assert_eq!(dash.coins, 96);
+
+    let dragon = catalog.find_item("dragon_prow").unwrap();
+    app.store
+        .append(rules::purchase_event(&dash, dragon).unwrap())
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let dash = app.projection.dashboard().unwrap();
+    assert_eq!(dash.coins, 16);
+    assert!(dash.owned_vessels.contains(&"dragon_prow".to_string()));
+
+    app.store
+        .append(rules::equip_vessel_event(&dash, "dragon_prow".to_string()).unwrap())
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let before = app.projection.dashboard().unwrap();
+    assert_eq!(before.current_vessel, "dragon_prow");
+    assert_eq!(before.animation, VesselAnimation::Happy);
+
+    std::fs::remove_file(&app.paths.db).unwrap();
+    let events = app.store.read_all().unwrap();
+    let mut rebuilt = Projection::open(&app.paths.db).unwrap();
+    rebuilt.rebuild(events).unwrap();
+    assert_eq!(rebuilt.dashboard().unwrap(), before);
 }
 
 #[test]

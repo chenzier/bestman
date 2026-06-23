@@ -58,7 +58,8 @@ q / Esc / Ctrl-C
 | `bestman --home <dir> log` | 查看最新航海日志 |
 | `bestman --home <dir> vessel list` | 查看可用船只 |
 | `bestman --home <dir> vessel set <id>` | 切换当前船只 |
-| `bestman --home <dir> shop buy <item_id>` | 购买简单商店物品 |
+| `bestman --home <dir> shop list` | 查看商店船只、价格、稀有度和拥有状态 |
+| `bestman --home <dir> shop buy <item_id>` | 购买已注册 catalog 的船只 |
 | `bestman --home <dir> tui` | 打开静态宠物船面板 |
 | `bestman --home <dir> tui --live --images` | 打开实时宠物船 TUI |
 | `bestman preview --animation sailing --output /tmp/ship.png` | 导出船只预览 PNG |
@@ -179,7 +180,7 @@ cargo test
 
 ## 后续重点
 
-1. v1.2 多船收集：catalog、ownership/equipped、购买/装备事件。
-2. 基于旧版预设重做 5 艘内置宠物船：小帆船、龙头战船、幽灵灯船、云剑小舟、应龙灵舟。
-3. `shop list` / `vessel list` 展示 owned/locked/price/rarity，TUI 首屏只显示当前船。
-4. v1.2 完成后再接真实 LLM 日志生成，并保留 template fallback。
+1. 接入真实 LLM 日志生成，并保留 template fallback。
+2. 增加本地轻量训练计划，让今日任务能按计划变化。
+3. `bestman config show` 和安全的高频配置命令。
+4. 发布包和升级说明。

@@ -12,7 +12,7 @@ use crate::llm::mock_narrative;
 use crate::map::Route;
 use crate::rules;
 use crate::tui;
-use crate::vessels::catalog::VesselCatalog;
+use crate::vessels::catalog::{CatalogItemKind, VesselCatalog};
 
 #[derive(Debug, Parser)]
 #[command(name = "bestman")]
@@ -123,6 +123,7 @@ enum VesselCommand {
 
 #[derive(Debug, Subcommand)]
 enum ShopCommand {
+    List,
     Buy { item_id: String },
 }
 
@@ -214,8 +215,36 @@ pub fn run() -> Result<()> {
                 VesselCommand::List => {
                     let catalog =
                         VesselCatalog::load_with_user_dir(&app.paths.home.join("vessels"))?;
-                    for vessel in catalog.vessels {
-                        println!("{} - {}", vessel.id, vessel.display_name);
+                    app.rebuild_projection()?;
+                    let dash = app.projection.dashboard()?;
+                    for item in catalog.vessel_items() {
+                        let owned = dash.owned_vessels.iter().any(|id| id == &item.id);
+                        let equipped = dash.current_vessel == item.id;
+                        let name = catalog
+                            .find(&item.id)
+                            .map(|vessel| vessel.display_name.as_str())
+                            .unwrap_or(item.id.as_str());
+                        println!(
+                            "{} {} - {} [{}] price={} rarity={}",
+                            if equipped {
+                                "*"
+                            } else if owned {
+                                "+"
+                            } else {
+                                "-"
+                            },
+                            item.id,
+                            name,
+                            if equipped {
+                                "equipped"
+                            } else if owned {
+                                "owned"
+                            } else {
+                                "locked"
+                            },
+                            item.price,
+                            item.rarity
+                        );
                     }
                 }
                 VesselCommand::Set { id } => {
@@ -224,9 +253,11 @@ pub fn run() -> Result<()> {
                     if catalog.find(&id).is_none() {
                         bail!("unknown vessel {id}");
                     }
-                    app.store.append(rules::change_vessel_event(id))?;
                     app.rebuild_projection()?;
-                    println!("vessel changed");
+                    let dash = app.projection.dashboard()?;
+                    app.store.append(rules::equip_vessel_event(&dash, id)?)?;
+                    app.rebuild_projection()?;
+                    println!("vessel equipped");
                 }
             }
         }
@@ -235,12 +266,33 @@ pub fn run() -> Result<()> {
             app.rebuild_projection()?;
             let dash = app.projection.dashboard()?;
             match command {
+                ShopCommand::List => {
+                    let catalog =
+                        VesselCatalog::load_with_user_dir(&app.paths.home.join("vessels"))?;
+                    for item in catalog.vessel_items() {
+                        let owned = dash.owned_items.iter().any(|id| id == &item.id);
+                        println!(
+                            "{} - kind={} rarity={} price={} {}",
+                            item.id,
+                            catalog_kind_label(item.kind.clone()),
+                            item.rarity,
+                            item.price,
+                            if owned { "owned" } else { "available" }
+                        );
+                    }
+                }
                 ShopCommand::Buy { item_id } => {
-                    let cost = shop_cost(&item_id)?;
-                    app.store
-                        .append(rules::purchase_event(&dash, item_id, cost)?)?;
+                    let catalog =
+                        VesselCatalog::load_with_user_dir(&app.paths.home.join("vessels"))?;
+                    let item = catalog
+                        .find_item(&item_id)
+                        .ok_or_else(|| anyhow::anyhow!("unknown shop item {item_id}"))?;
+                    if item.kind != CatalogItemKind::Vessel {
+                        bail!("only vessel items can be bought in v1.2");
+                    }
+                    app.store.append(rules::purchase_event(&dash, item)?)?;
                     app.rebuild_projection()?;
-                    println!("purchased");
+                    println!("purchased {item_id}");
                 }
             }
         }
@@ -401,6 +453,8 @@ fn status_json(dash: &crate::projection::Dashboard) -> serde_json::Value {
         "mood": dash.mood,
         "streak": dash.streak,
         "current_vessel": dash.current_vessel,
+        "owned_items": dash.owned_items,
+        "owned_vessels": dash.owned_vessels,
         "animation": format!("{:?}", dash.animation),
         "last_action_date": dash.last_action_date.map(|date| date.to_string()),
         "last_action_kind": dash.last_action_kind,
@@ -491,15 +545,6 @@ fn level_label(level: CompletionLevel) -> &'static str {
     }
 }
 
-fn shop_cost(item_id: &str) -> Result<i32> {
-    Ok(match item_id {
-        "blue_sail" => 20,
-        "warm_lantern" => 30,
-        "idle_bobble" => 40,
-        other => bail!("unknown shop item {other}"),
-    })
-}
-
 impl From<LevelArg> for CompletionLevel {
     fn from(value: LevelArg) -> Self {
         match value {
@@ -507,5 +552,14 @@ impl From<LevelArg> for CompletionLevel {
             LevelArg::Normal => CompletionLevel::Normal,
             LevelArg::Full => CompletionLevel::Full,
         }
+    }
+}
+
+fn catalog_kind_label(kind: CatalogItemKind) -> &'static str {
+    match kind {
+        CatalogItemKind::Vessel => "vessel",
+        CatalogItemKind::Skin => "skin",
+        CatalogItemKind::Decoration => "decoration",
+        CatalogItemKind::Animation => "animation",
     }
 }
