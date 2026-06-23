@@ -7,7 +7,7 @@ use directories::ProjectDirs;
 
 use crate::app::{AppPaths, BestmanApp};
 use crate::config::BestmanConfig;
-use crate::events::{CoinAward, CompletionLevel};
+use crate::events::{CoinAward, CompletionLevel, RecapPeriod};
 use crate::llm::{generate_narrative, mock_narrative};
 use crate::map::Route;
 use crate::rules;
@@ -74,6 +74,8 @@ enum Command {
     Recap {
         #[arg(long)]
         llm: bool,
+        #[arg(long, value_enum, default_value_t = RecapPeriodArg::All)]
+        period: RecapPeriodArg,
     },
     Plan {
         #[command(subcommand)]
@@ -191,6 +193,13 @@ enum LevelArg {
     Light,
     Normal,
     Full,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum RecapPeriodArg {
+    Week,
+    Month,
+    All,
 }
 
 pub fn run() -> Result<()> {
@@ -355,32 +364,34 @@ pub fn run() -> Result<()> {
             println!("Captain:");
             println!("{text}");
         }
-        Command::Recap { llm } => {
+        Command::Recap { llm, period } => {
             let mut app = BestmanApp::open(paths)?;
             app.rebuild_projection()?;
             let dash = app.projection.dashboard()?;
-            let prompt = recap_prompt(&dash);
+            let period: RecapPeriod = period.into();
+            let prompt = recap_prompt(&dash, period);
             let (text, model, prompt_version) = if llm || app.config.llm.enabled {
                 match generate_narrative(&app.config.llm, &prompt) {
                     Ok(generated) => (generated.text, generated.model, generated.prompt_version),
                     Err(err) => {
                         eprintln!("LLM recap unavailable; generated local recap: {err}");
                         (
-                            local_recap(&dash),
+                            local_recap(&dash, period),
                             "template".to_string(),
-                            "bestman-v3-recap-template".to_string(),
+                            recap_prompt_version(period).to_string(),
                         )
                     }
                 }
             } else {
                 (
-                    local_recap(&dash),
+                    local_recap(&dash, period),
                     "template".to_string(),
-                    "bestman-v3-recap-template".to_string(),
+                    recap_prompt_version(period).to_string(),
                 )
             };
             app.store.append(rules::recap_generated_event(
                 today(),
+                period,
                 text.clone(),
                 model,
                 prompt_version,
@@ -877,6 +888,16 @@ impl From<LevelArg> for CompletionLevel {
     }
 }
 
+impl From<RecapPeriodArg> for RecapPeriod {
+    fn from(value: RecapPeriodArg) -> Self {
+        match value {
+            RecapPeriodArg::Week => RecapPeriod::Week,
+            RecapPeriodArg::Month => RecapPeriod::Month,
+            RecapPeriodArg::All => RecapPeriod::All,
+        }
+    }
+}
+
 fn narrative_prompt(daily_task: &str, level: CompletionLevel) -> String {
     format!(
         "今日任务：{daily_task}\n完成级别：{}\n请写一段 1-2 句温柔的宠物船航海日志。不要提及或修改金币、位置、心情、信任等规则状态。",
@@ -884,9 +905,10 @@ fn narrative_prompt(daily_task: &str, level: CompletionLevel) -> String {
     )
 }
 
-fn recap_prompt(dash: &crate::projection::Dashboard) -> String {
+fn recap_prompt(dash: &crate::projection::Dashboard, period: RecapPeriod) -> String {
     format!(
-        "请写一段 3-4 句 bestman 宠物船长期回顾。事实：已完成 {} 天，当前位置 {}/{}，当前船 {}，拥有船只 {} 艘，金币 {}，心情 {}，信任 {}，当前计划目标 {}。只写叙事，不修改任何状态。",
+        "请写一段 3-4 句 bestman 宠物船{}回顾。事实：已完成 {} 天，当前位置 {}/{}，当前船 {}，拥有船只 {} 艘，金币 {}，心情 {}，信任 {}，当前计划目标 {}。只写叙事，不修改任何状态。",
+        recap_period_label(period),
         dash.completed_days,
         dash.position,
         dash.total_days,
@@ -899,15 +921,32 @@ fn recap_prompt(dash: &crate::projection::Dashboard) -> String {
     )
 }
 
-fn local_recap(dash: &crate::projection::Dashboard) -> String {
+fn local_recap(dash: &crate::projection::Dashboard, period: RecapPeriod) -> String {
     format!(
-        "Recap: 小船已经陪你完成 {} 天，航线推进到 {}/{}。当前船只是 {}，船坞里已有 {} 艘船。今天不需要夸张的史诗，只要把下一次训练稳稳接上。",
+        "Recap ({})：小船已经陪你完成 {} 天，航线推进到 {}/{}。当前船只是 {}，船坞里已有 {} 艘船。今天不需要夸张的史诗，只要把下一次训练稳稳接上。",
+        recap_period_label(period),
         dash.completed_days,
         dash.position,
         dash.total_days,
         dash.current_vessel,
         dash.owned_vessels.len()
     )
+}
+
+fn recap_period_label(period: RecapPeriod) -> &'static str {
+    match period {
+        RecapPeriod::Week => "week",
+        RecapPeriod::Month => "month",
+        RecapPeriod::All => "all-time",
+    }
+}
+
+fn recap_prompt_version(period: RecapPeriod) -> &'static str {
+    match period {
+        RecapPeriod::Week => "bestman-v3-weekly-recap-template",
+        RecapPeriod::Month => "bestman-v3-monthly-recap-template",
+        RecapPeriod::All => "bestman-v3-recap-template",
+    }
 }
 
 fn milestone_epic_text(

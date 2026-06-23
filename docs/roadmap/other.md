@@ -9,7 +9,7 @@
 已落地：
 
 - 航海日志生成。
-- `recap` 长期回顾。
+- `recap` 长期/周/月回顾。
 - `talk` 船长聊天。
 - provider/model/prompt version 配置。
 - template fallback。

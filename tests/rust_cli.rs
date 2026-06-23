@@ -602,18 +602,28 @@ fn cli_recap_generates_long_term_log_with_fallback() {
 
     Command::cargo_bin("bestman")
         .unwrap()
-        .args(["--home", home.to_str().unwrap(), "recap", "--llm"])
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "recap",
+            "--period",
+            "week",
+            "--llm",
+        ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Recap:"))
+        .stdout(predicate::str::contains("Recap (week)"))
         .stderr(predicate::str::contains("LLM recap unavailable"));
+
+    let events = std::fs::read_to_string(home.join("events.jsonl")).unwrap();
+    assert!(events.contains("\"period\":\"week\""));
 
     Command::cargo_bin("bestman")
         .unwrap()
         .args(["--home", home.to_str().unwrap(), "log"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Recap:"));
+        .stdout(predicate::str::contains("Recap (week)"));
 }
 
 #[test]

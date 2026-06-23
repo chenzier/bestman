@@ -7,7 +7,7 @@ use bestman_rs::config::BestmanConfig;
 use bestman_rs::dashboard::{
     build_dashboard_render, export_dashboard_frames, export_dashboard_png,
 };
-use bestman_rs::events::{CompletionLevel, EventKind, VesselAnimation};
+use bestman_rs::events::{CompletionLevel, EventKind, RecapPeriod, VesselAnimation};
 use bestman_rs::llm::{build_openai_chat_request, parse_openai_chat_response};
 use bestman_rs::projection::Projection;
 use bestman_rs::rules;
@@ -239,6 +239,7 @@ fn recap_event_is_persisted_as_latest_log_and_replays() {
         .append(
             rules::recap_generated_event(
                 NaiveDate::from_ymd_opt(2026, 6, 23).unwrap(),
+                RecapPeriod::All,
                 "Recap: 小船稳稳前进。".to_string(),
                 "template".to_string(),
                 "test-recap".to_string(),

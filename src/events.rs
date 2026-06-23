@@ -85,6 +85,8 @@ pub enum EventKind {
     },
     RecapGenerated {
         date: NaiveDate,
+        #[serde(default = "default_recap_period")]
+        period: RecapPeriod,
         text: String,
         model: String,
         prompt_version: String,
@@ -135,10 +137,22 @@ pub enum ShopItemKind {
     Animation,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RecapPeriod {
+    Week,
+    Month,
+    All,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CoinAward {
     pub reason: String,
     pub amount: i32,
+}
+
+fn default_recap_period() -> RecapPeriod {
+    RecapPeriod::All
 }
 
 impl StoredEvent {

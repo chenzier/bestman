@@ -4,7 +4,7 @@ use rand::Rng;
 
 use crate::config::BestmanConfig;
 use crate::events::{
-    CoinAward, CompletionLevel, EventKind, ShopItemKind, StoredEvent, VesselAnimation,
+    CoinAward, CompletionLevel, EventKind, RecapPeriod, ShopItemKind, StoredEvent, VesselAnimation,
 };
 use crate::map::milestone_names;
 use crate::projection::Dashboard;
@@ -253,6 +253,7 @@ pub fn narrative_generated_event(
 
 pub fn recap_generated_event(
     date: NaiveDate,
+    period: RecapPeriod,
     text: String,
     model: String,
     prompt_version: String,
@@ -262,6 +263,7 @@ pub fn recap_generated_event(
     }
     Ok(StoredEvent::new(EventKind::RecapGenerated {
         date,
+        period,
         text,
         model,
         prompt_version,
