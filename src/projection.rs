@@ -11,6 +11,8 @@ pub struct Dashboard {
     pub initialized: bool,
     pub total_days: u32,
     pub daily_task: String,
+    pub plan_goal: Option<String>,
+    pub plan_tasks: Vec<String>,
     pub position: u32,
     pub completed_days: u32,
     pub coins: i32,
@@ -49,6 +51,8 @@ impl Projection {
                 initialized INTEGER NOT NULL DEFAULT 0,
                 total_days INTEGER NOT NULL DEFAULT 120,
                 daily_task TEXT NOT NULL DEFAULT '未设置 - 运行 init 设置每日任务',
+                plan_goal TEXT,
+                plan_tasks_json TEXT NOT NULL DEFAULT '[]',
                 position INTEGER NOT NULL DEFAULT 0,
                 completed_days INTEGER NOT NULL DEFAULT 0,
                 coins INTEGER NOT NULL DEFAULT 0,
@@ -82,6 +86,13 @@ impl Projection {
             "daily_task",
             "TEXT NOT NULL DEFAULT '未设置 - 运行 init 设置每日任务'",
         )?;
+        add_column_if_missing(&self.conn, "app_state", "plan_goal", "TEXT")?;
+        add_column_if_missing(
+            &self.conn,
+            "app_state",
+            "plan_tasks_json",
+            "TEXT NOT NULL DEFAULT '[]'",
+        )?;
         add_column_if_missing(&self.conn, "app_state", "last_action_date", "TEXT")?;
         add_column_if_missing(&self.conn, "app_state", "last_action_kind", "TEXT")?;
         Ok(())
@@ -93,7 +104,7 @@ impl Projection {
         tx.execute("DELETE FROM purchases", [])?;
         tx.execute("DELETE FROM owned_items", [])?;
         tx.execute(
-            "UPDATE app_state SET initialized=0,total_days=120,daily_task='未设置 - 运行 init 设置每日任务',position=0,completed_days=0,coins=0,trust=20,mood=60,streak=0,current_vessel='starter_sloop',animation='idle',last_action_date=NULL,last_action_kind=NULL WHERE id=1",
+            "UPDATE app_state SET initialized=0,total_days=120,daily_task='未设置 - 运行 init 设置每日任务',plan_goal=NULL,plan_tasks_json='[]',position=0,completed_days=0,coins=0,trust=20,mood=60,streak=0,current_vessel='starter_sloop',animation='idle',last_action_date=NULL,last_action_kind=NULL WHERE id=1",
             [],
         )?;
 
@@ -164,6 +175,23 @@ impl Projection {
                         params![event.id.to_string(), date.to_string(), template_narrative],
                     )?;
                 }
+                EventKind::PlanCreated { goal, tasks, .. } => {
+                    let daily_task = tasks
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| "轻量活动 20 分钟".to_string());
+                    let tasks_json = serde_json::to_string(&tasks)?;
+                    tx.execute(
+                        "UPDATE app_state SET daily_task=?,plan_goal=?,plan_tasks_json=? WHERE id=1",
+                        params![daily_task, goal, tasks_json],
+                    )?;
+                }
+                EventKind::PlanAdjusted { daily_task, .. } => {
+                    tx.execute(
+                        "UPDATE app_state SET daily_task=? WHERE id=1",
+                        params![daily_task],
+                    )?;
+                }
                 EventKind::VesselChanged { vessel_id } => {
                     tx.execute(
                         "UPDATE app_state SET current_vessel=?,animation='happy' WHERE id=1",
@@ -212,29 +240,34 @@ impl Projection {
 
     pub fn dashboard(&self) -> Result<Dashboard> {
         let mut stmt = self.conn.prepare(
-            "SELECT initialized,total_days,daily_task,position,completed_days,coins,trust,mood,streak,current_vessel,animation,last_action_date,last_action_kind FROM app_state WHERE id=1",
+            "SELECT initialized,total_days,daily_task,plan_goal,plan_tasks_json,position,completed_days,coins,trust,mood,streak,current_vessel,animation,last_action_date,last_action_kind FROM app_state WHERE id=1",
         )?;
         let row = stmt.query_row([], |row| {
             let last_action_date = row
-                .get::<_, Option<String>>(11)?
+                .get::<_, Option<String>>(13)?
                 .and_then(|date| NaiveDate::parse_from_str(&date, "%Y-%m-%d").ok());
+            let plan_tasks_json = row.get::<_, String>(4)?;
+            let plan_tasks =
+                serde_json::from_str::<Vec<String>>(&plan_tasks_json).unwrap_or_default();
             Ok(Dashboard {
                 initialized: row.get::<_, i32>(0)? == 1,
                 total_days: row.get::<_, u32>(1)?,
                 daily_task: row.get(2)?,
-                position: row.get::<_, u32>(3)?,
-                completed_days: row.get::<_, u32>(4)?,
-                coins: row.get(5)?,
-                trust: row.get(6)?,
-                mood: row.get(7)?,
-                streak: row.get::<_, u32>(8)?,
-                current_vessel: row.get(9)?,
-                animation: animation_from_name(row.get::<_, String>(10)?.as_str())
+                plan_goal: row.get(3)?,
+                plan_tasks,
+                position: row.get::<_, u32>(5)?,
+                completed_days: row.get::<_, u32>(6)?,
+                coins: row.get(7)?,
+                trust: row.get(8)?,
+                mood: row.get(9)?,
+                streak: row.get::<_, u32>(10)?,
+                current_vessel: row.get(11)?,
+                animation: animation_from_name(row.get::<_, String>(12)?.as_str())
                     .unwrap_or(VesselAnimation::Idle),
                 owned_items: Vec::new(),
                 owned_vessels: Vec::new(),
                 last_action_date,
-                last_action_kind: row.get(12)?,
+                last_action_kind: row.get(14)?,
                 latest_log: None,
             })
         })?;
@@ -322,11 +355,14 @@ fn add_column_if_missing(
     column: &str,
     definition: &str,
 ) -> Result<()> {
-    let exists: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?",
-        params![table, column],
-        |row| row.get(0),
-    )?;
+    if !table
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    {
+        bail!("unsafe table name {table}");
+    }
+    let sql = format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = ?");
+    let exists: i64 = conn.query_row(&sql, params![column], |row| row.get(0))?;
     if exists == 0 {
         conn.execute(
             &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),

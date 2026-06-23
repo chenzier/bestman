@@ -8,6 +8,7 @@ use bestman_rs::dashboard::{
     build_dashboard_render, export_dashboard_frames, export_dashboard_png,
 };
 use bestman_rs::events::{CompletionLevel, EventKind, VesselAnimation};
+use bestman_rs::llm::{build_openai_chat_request, parse_openai_chat_response};
 use bestman_rs::projection::Projection;
 use bestman_rs::rules;
 use bestman_rs::terminal_image::{ImageProtocol, detect_from_env, kitty_delete, kitty_inline_png};
@@ -137,6 +138,7 @@ fn narrative_generated_replaces_template_log() {
             target,
             "LLM 替换日志".to_string(),
             "mock".to_string(),
+            "test-v1".to_string(),
         ))
         .unwrap();
     app.rebuild_projection().unwrap();
@@ -144,6 +146,78 @@ fn narrative_generated_replaces_template_log() {
         app.projection.dashboard().unwrap().latest_log.as_deref(),
         Some("LLM 替换日志")
     );
+}
+
+#[test]
+fn llm_request_and_response_contract_are_openai_compatible() {
+    let request = build_openai_chat_request("test-model", "写一段日志", "prompt-v2");
+    assert_eq!(request["model"], "test-model");
+    assert_eq!(request["metadata"]["prompt_version"], "prompt-v2");
+    assert_eq!(request["messages"][0]["role"], "system");
+    assert_eq!(request["messages"][1]["content"], "写一段日志");
+    assert!(
+        request["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Do not change coins")
+    );
+
+    let response = serde_json::json!({
+        "choices": [
+            { "message": { "content": "小船在灯下轻轻靠岸。" } }
+        ]
+    });
+    assert_eq!(
+        parse_openai_chat_response(&response).unwrap(),
+        "小船在灯下轻轻靠岸。"
+    );
+    assert!(parse_openai_chat_response(&serde_json::json!({})).is_err());
+}
+
+#[test]
+fn plan_events_update_daily_task_and_replay() {
+    let config = BestmanConfig::default();
+    let dir = tempdir().unwrap();
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.store
+        .append(
+            rules::plan_created_event(
+                NaiveDate::from_ymd_opt(2026, 6, 23).unwrap(),
+                "减脂保状态".to_string(),
+                vec!["深蹲 3x12".to_string(), "快走 20 分钟".to_string()],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    app.store
+        .append(
+            rules::plan_adjusted_event(
+                NaiveDate::from_ymd_opt(2026, 6, 24).unwrap(),
+                "轻量拉伸 15 分钟".to_string(),
+                "fatigue".to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let before = app.projection.dashboard().unwrap();
+    assert_eq!(before.plan_goal.as_deref(), Some("减脂保状态"));
+    assert_eq!(before.plan_tasks.len(), 2);
+    assert_eq!(before.daily_task, "轻量拉伸 15 分钟");
+
+    std::fs::remove_file(&app.paths.db).unwrap();
+    let events = app.store.read_all().unwrap();
+    let mut rebuilt = Projection::open(&app.paths.db).unwrap();
+    rebuilt.rebuild(events).unwrap();
+    assert_eq!(rebuilt.dashboard().unwrap(), before);
 }
 
 #[test]

@@ -154,6 +154,46 @@ pub fn skip_or_rest_event(
     }
 }
 
+pub fn plan_created_event(
+    date: NaiveDate,
+    goal: String,
+    tasks: Vec<String>,
+) -> Result<StoredEvent> {
+    let goal = goal.trim().to_string();
+    if goal.is_empty() {
+        bail!("plan goal cannot be empty");
+    }
+    let tasks = tasks
+        .into_iter()
+        .map(|task| task.trim().to_string())
+        .filter(|task| !task.is_empty())
+        .collect::<Vec<_>>();
+    if tasks.is_empty() {
+        bail!("plan must contain at least one task");
+    }
+    Ok(StoredEvent::new(EventKind::PlanCreated {
+        date,
+        goal,
+        tasks,
+    }))
+}
+
+pub fn plan_adjusted_event(
+    date: NaiveDate,
+    daily_task: String,
+    reason: String,
+) -> Result<StoredEvent> {
+    let daily_task = daily_task.trim().to_string();
+    if daily_task.is_empty() {
+        bail!("daily task cannot be empty");
+    }
+    Ok(StoredEvent::new(EventKind::PlanAdjusted {
+        date,
+        daily_task,
+        reason,
+    }))
+}
+
 pub fn purchase_event(dashboard: &Dashboard, item: &CatalogItem) -> Result<StoredEvent> {
     if item.kind != CatalogItemKind::Vessel {
         bail!("only vessel shop items are supported in v1.2");
@@ -186,12 +226,13 @@ pub fn narrative_generated_event(
     target_event_id: uuid::Uuid,
     text: String,
     model: String,
+    prompt_version: String,
 ) -> StoredEvent {
     StoredEvent::new(EventKind::NarrativeGenerated {
         target_event_id,
         text,
         model,
-        prompt_version: "v1".to_string(),
+        prompt_version,
     })
 }
 

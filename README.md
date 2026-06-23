@@ -54,8 +54,12 @@ q / Esc / Ctrl-C
 | `bestman --home <dir> reset --yes` | 清空该 home 下的本地数据 |
 | `bestman --home <dir> done --level full --dice 3` | 完成今日训练，推进航程 |
 | `bestman --home <dir> done --mock-llm` | 使用 mock LLM 生成航海日志 |
+| `bestman --home <dir> done --llm` | 尝试真实 LLM 航海日志，失败时保留模板日志 |
 | `bestman --home <dir> skip` | 记录休息/跳过 |
 | `bestman --home <dir> log` | 查看最新航海日志 |
+| `bestman --home <dir> plan create --goal <goal> --tasks "A,B"` | 创建本地轻量训练计划 |
+| `bestman --home <dir> plan show` | 查看当前计划和今日任务 |
+| `bestman --home <dir> plan set-today "<task>"` | 手动调整今日任务 |
 | `bestman --home <dir> vessel list` | 查看可用船只 |
 | `bestman --home <dir> vessel set <id>` | 切换当前船只 |
 | `bestman --home <dir> shop list` | 查看商店船只、价格、稀有度和拥有状态 |
@@ -95,6 +99,29 @@ q / Esc / Ctrl-C
 ```bash
 bestman --home /tmp/bestman-demo status
 ```
+
+## LLM 配置
+
+真实 LLM 叙事是可选增强。它只写航海日志，不改金币、位置、心情、信任或奖励。
+
+```toml
+[llm]
+enabled = true
+provider = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+model = "gpt-4o-mini"
+prompt_version = "bestman-v2-narrative"
+```
+
+运行时设置对应环境变量：
+
+```bash
+export OPENAI_API_KEY=...
+bestman --home /tmp/bestman-demo done --llm
+```
+
+如果 LLM 不可用，打卡仍会成功，并保留本地模板日志。
 
 ## 船只资产
 
@@ -180,7 +207,6 @@ cargo test
 
 ## 后续重点
 
-1. 接入真实 LLM 日志生成，并保留 template fallback。
-2. 增加本地轻量训练计划，让今日任务能按计划变化。
-3. `bestman config show` 和安全的高频配置命令。
-4. 发布包和升级说明。
+1. v3 远期叙事扩展：里程碑史诗、长期回顾、可选船员/角色。
+2. `bestman config show` 和安全的高频配置命令。
+3. 发布包和升级说明。

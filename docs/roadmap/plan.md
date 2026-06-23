@@ -1,6 +1,6 @@
 # 训练计划技术路线
 
-> 优先级：v2  
+> 优先级：v2 已完成  
 > 定位：支撑今日任务，不压过宠物船
 
 ## 新定位
@@ -18,18 +18,30 @@
   - 禁止重复，或
   - 允许补记但不重复发奖励。
 
-## v2 计划模型
+## v2 已落地计划模型
 
-建议事件化：
+已事件化：
 
 ```text
 PlanCreated
 PlanAdjusted
-DailyTaskCompleted
-DailyTaskSkipped
 ```
 
-projection 中只保留当前计划和今日任务。
+projection 中保留当前计划和今日任务：
+
+```text
+plan_goal
+plan_tasks
+daily_task
+```
+
+CLI：
+
+```text
+bestman plan create --goal <goal> --tasks "A,B"
+bestman plan show
+bestman plan set-today "<task>"
+```
 
 基础字段：
 
@@ -40,7 +52,7 @@ daily_task = "深蹲 3x15 + 平板支撑 3x30s"
 rest_days = ["sun"]
 ```
 
-后续可扩展：
+后续仍可扩展：
 
 ```text
 plan_id

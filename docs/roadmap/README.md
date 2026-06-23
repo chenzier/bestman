@@ -1,7 +1,7 @@
 # bestman 技术路线 · 总览
 
 > 最后更新：2026-06-23  
-> 当前阶段：Rust v1.2 多船收集系统已收口，下一主线是 v2.0 训练计划与真实 LLM 叙事
+> 当前阶段：Rust v2.0 训练计划与真实 LLM 叙事已收口，下一主线是 v3.0 远期叙事扩展
 
 ## 产品定位
 
@@ -61,6 +61,8 @@ Rust CLI/TUI
 | 5 艘内置宠物船 | 已落地 |
 | vessel ownership / equipped 投影 | 已落地 |
 | `shop list` / `shop buy` / `vessel list` / `vessel set` | 已落地 |
+| 本地轻量训练计划 | 已落地 |
+| OpenAI-compatible LLM 航海日志接口 | 已落地，有 template fallback |
 | Rust 测试 | 已落地 |
 
 ## 版本阶段
@@ -140,16 +142,17 @@ Rust CLI/TUI
 - `shop` 类型系统预留 `vessel/skin/decoration/animation`，v1.2 只实现 `vessel`。
 - `unlock` 字段先解析/保留，第一版只支持空条件或 `always`。
 
-### v2.0 — 训练计划与真实 LLM 叙事
+### v2.0 — 训练计划与真实 LLM 叙事（已完成）
 
 目标：在多船收集闭环稳定后，让打卡内容更贴合用户目标。
 
-- 本地轻量训练计划
-- 今日任务在 TUI 中展示
-- LLM 只生成日志、总结、温柔反馈
-- LLM 失败时 template fallback
-- 保存 provider/model/prompt version
-- 不允许 LLM 改状态：position/coins/mood/trust 仍由 rules 决定
+- `plan create/show/set-today` 支持本地轻量计划。
+- plan 通过事件写入，SQLite 投影当前 goal/tasks/daily_task。
+- 今日任务继续在 TUI 和状态 JSON 中展示。
+- OpenAI-compatible LLM 接口可生成航海日志。
+- LLM 失败时保留 template fallback，不阻断打卡。
+- 保存 provider/model/prompt version。
+- 不允许 LLM 改状态：position/coins/mood/trust 仍由 rules 决定。
 
 ### v3.0 — 远期叙事扩展
 

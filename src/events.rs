@@ -51,6 +51,16 @@ pub enum EventKind {
         animation: VesselAnimation,
         template_narrative: String,
     },
+    PlanCreated {
+        date: NaiveDate,
+        goal: String,
+        tasks: Vec<String>,
+    },
+    PlanAdjusted {
+        date: NaiveDate,
+        daily_task: String,
+        reason: String,
+    },
     VesselChanged {
         vessel_id: String,
     },

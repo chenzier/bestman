@@ -204,6 +204,103 @@ fn cli_lists_builtin_catalog_and_blocks_unowned_vessel_equip() {
 }
 
 #[test]
+fn cli_plan_commands_update_today_task() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "plan",
+            "create",
+            "--goal",
+            "减脂保状态",
+            "--tasks",
+            "深蹲 3x12,快走 20 分钟",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("plan created"))
+        .stdout(predicate::str::contains("today: 深蹲 3x12"));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "plan",
+            "set-today",
+            "轻量拉伸 15 分钟",
+            "--reason",
+            "fatigue",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("today: 轻量拉伸 15 分钟"));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "plan", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("goal: 减脂保状态"))
+        .stdout(predicate::str::contains("today: 轻量拉伸 15 分钟"))
+        .stdout(predicate::str::contains("- 快走 20 分钟"));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "status", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"plan_goal\": \"减脂保状态\""))
+        .stdout(predicate::str::contains(
+            "\"daily_task\": \"轻量拉伸 15 分钟\"",
+        ));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "done", "--dice", "1"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("task: 轻量拉伸 15 分钟"));
+}
+
+#[test]
+fn cli_done_llm_falls_back_when_llm_is_unavailable() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "done",
+            "--dice",
+            "1",
+            "--llm",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Check-in recorded"))
+        .stderr(predicate::str::contains("LLM narrative unavailable"));
+}
+
+#[test]
 fn cli_preview_writes_png() {
     let dir = tempdir().unwrap();
     let output = dir.path().join("ship.png");

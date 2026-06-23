@@ -8,7 +8,7 @@ use directories::ProjectDirs;
 use crate::app::{AppPaths, BestmanApp};
 use crate::config::BestmanConfig;
 use crate::events::{CoinAward, CompletionLevel};
-use crate::llm::mock_narrative;
+use crate::llm::{generate_narrative, mock_narrative};
 use crate::map::Route;
 use crate::rules;
 use crate::tui;
@@ -49,12 +49,18 @@ enum Command {
         dice: Option<u32>,
         #[arg(long)]
         mock_llm: bool,
+        #[arg(long)]
+        llm: bool,
     },
     Skip {
         #[arg(long, default_value = "需要休整")]
         reason: String,
     },
     Log,
+    Plan {
+        #[command(subcommand)]
+        command: PlanCommand,
+    },
     Vessel {
         #[command(subcommand)]
         command: VesselCommand,
@@ -127,6 +133,22 @@ enum ShopCommand {
     Buy { item_id: String },
 }
 
+#[derive(Debug, Subcommand)]
+enum PlanCommand {
+    Create {
+        #[arg(long)]
+        goal: String,
+        #[arg(long, value_delimiter = ',')]
+        tasks: Vec<String>,
+    },
+    Show,
+    SetToday {
+        task: String,
+        #[arg(long, default_value = "manual adjustment")]
+        reason: String,
+    },
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum LevelArg {
     Light,
@@ -171,10 +193,12 @@ pub fn run() -> Result<()> {
             message,
             dice,
             mock_llm,
+            llm,
         } => {
             let mut app = BestmanApp::open(paths)?;
             app.rebuild_projection()?;
             let dash = app.projection.dashboard()?;
+            let current_daily_task = dash.daily_task.clone();
             let event =
                 rules::check_in_event(&app.config, &dash, today(), level.into(), message, dice)?;
             let feedback = done_feedback(&event.kind);
@@ -185,11 +209,27 @@ pub fn run() -> Result<()> {
                     stored.id,
                     text,
                     "mock-llm".to_string(),
+                    "mock-v1".to_string(),
                 ))?;
+            } else if llm || app.config.llm.enabled {
+                let prompt = narrative_prompt(&current_daily_task, feedback.level);
+                match generate_narrative(&app.config.llm, &prompt) {
+                    Ok(generated) => {
+                        app.store.append(rules::narrative_generated_event(
+                            stored.id,
+                            generated.text,
+                            generated.model,
+                            generated.prompt_version,
+                        ))?;
+                    }
+                    Err(err) => {
+                        eprintln!("LLM narrative unavailable; kept template log: {err}");
+                    }
+                }
             }
             app.rebuild_projection()?;
             let dash = app.projection.dashboard()?;
-            print_done_feedback(&app.config.voyage.daily_task, feedback, &dash);
+            print_done_feedback(&current_daily_task, feedback, &dash);
         }
         Command::Skip { reason } => {
             let mut app = BestmanApp::open(paths)?;
@@ -208,6 +248,44 @@ pub fn run() -> Result<()> {
                 "{}",
                 dash.latest_log.unwrap_or_else(|| "no logs".to_string())
             );
+        }
+        Command::Plan { command } => {
+            let mut app = BestmanApp::open(paths)?;
+            app.rebuild_projection()?;
+            match command {
+                PlanCommand::Create { goal, tasks } => {
+                    app.store
+                        .append(rules::plan_created_event(today(), goal, tasks)?)?;
+                    app.rebuild_projection()?;
+                    let dash = app.projection.dashboard()?;
+                    println!("plan created");
+                    println!("goal: {}", dash.plan_goal.unwrap_or_default());
+                    println!("today: {}", dash.daily_task);
+                }
+                PlanCommand::Show => {
+                    let dash = app.projection.dashboard()?;
+                    println!(
+                        "goal: {}",
+                        dash.plan_goal
+                            .clone()
+                            .unwrap_or_else(|| "no plan".to_string())
+                    );
+                    println!("today: {}", dash.daily_task);
+                    if !dash.plan_tasks.is_empty() {
+                        println!("tasks:");
+                        for task in dash.plan_tasks {
+                            println!("- {task}");
+                        }
+                    }
+                }
+                PlanCommand::SetToday { task, reason } => {
+                    app.store
+                        .append(rules::plan_adjusted_event(today(), task, reason)?)?;
+                    app.rebuild_projection()?;
+                    let dash = app.projection.dashboard()?;
+                    println!("today: {}", dash.daily_task);
+                }
+            }
         }
         Command::Vessel { command } => {
             let mut app = BestmanApp::open(paths)?;
@@ -446,6 +524,8 @@ fn status_json(dash: &crate::projection::Dashboard) -> serde_json::Value {
     serde_json::json!({
         "initialized": dash.initialized,
         "daily_task": dash.daily_task,
+        "plan_goal": dash.plan_goal,
+        "plan_tasks": dash.plan_tasks,
         "position": dash.position,
         "total_days": dash.total_days,
         "coins": dash.coins,
@@ -553,6 +633,13 @@ impl From<LevelArg> for CompletionLevel {
             LevelArg::Full => CompletionLevel::Full,
         }
     }
+}
+
+fn narrative_prompt(daily_task: &str, level: CompletionLevel) -> String {
+    format!(
+        "今日任务：{daily_task}\n完成级别：{}\n请写一段 1-2 句温柔的宠物船航海日志。不要提及或修改金币、位置、心情、信任等规则状态。",
+        level_label(level)
+    )
 }
 
 fn catalog_kind_label(kind: CatalogItemKind) -> &'static str {

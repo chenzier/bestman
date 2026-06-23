@@ -5,8 +5,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BestmanConfig {
+    #[serde(default)]
     pub voyage: VoyageConfig,
+    #[serde(default)]
     pub companion: CompanionConfig,
+    #[serde(default)]
     pub llm: LlmConfig,
 }
 
@@ -24,8 +27,18 @@ pub struct CompanionConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LlmConfig {
+    #[serde(default)]
     pub enabled: bool,
+    #[serde(default = "default_llm_provider")]
+    pub provider: String,
+    #[serde(default = "default_llm_base_url")]
+    pub base_url: String,
+    #[serde(default = "default_llm_api_key_env")]
+    pub api_key_env: String,
+    #[serde(default = "default_llm_model")]
     pub model: String,
+    #[serde(default = "default_prompt_version")]
+    pub prompt_version: String,
 }
 
 impl Default for BestmanConfig {
@@ -41,10 +54,65 @@ impl Default for BestmanConfig {
             },
             llm: LlmConfig {
                 enabled: false,
-                model: "gpt-4o-mini".to_string(),
+                provider: default_llm_provider(),
+                base_url: default_llm_base_url(),
+                api_key_env: default_llm_api_key_env(),
+                model: default_llm_model(),
+                prompt_version: default_prompt_version(),
             },
         }
     }
+}
+
+impl Default for VoyageConfig {
+    fn default() -> Self {
+        Self {
+            total_days: 120,
+            daily_task: "未设置 - 运行 init 设置每日任务".to_string(),
+            rest_days: vec!["sun".to_string()],
+        }
+    }
+}
+
+impl Default for CompanionConfig {
+    fn default() -> Self {
+        Self {
+            current_vessel: "starter_sloop".to_string(),
+        }
+    }
+}
+
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: default_llm_provider(),
+            base_url: default_llm_base_url(),
+            api_key_env: default_llm_api_key_env(),
+            model: default_llm_model(),
+            prompt_version: default_prompt_version(),
+        }
+    }
+}
+
+fn default_llm_provider() -> String {
+    "openai_compatible".to_string()
+}
+
+fn default_llm_base_url() -> String {
+    "https://api.openai.com/v1".to_string()
+}
+
+fn default_llm_api_key_env() -> String {
+    "OPENAI_API_KEY".to_string()
+}
+
+fn default_llm_model() -> String {
+    "gpt-4o-mini".to_string()
+}
+
+fn default_prompt_version() -> String {
+    "bestman-v2-narrative".to_string()
 }
 
 impl BestmanConfig {

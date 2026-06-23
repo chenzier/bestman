@@ -4,14 +4,20 @@
 
 ## LLM
 
-当前 Rust 版只有 mock narrative。
+当前 Rust 版已有 mock narrative 和 OpenAI-compatible LLM 航海日志接口。
 
-真实接入顺序：
+已落地：
 
-1. v1.2 多船收集闭环完成后，再接航海日志生成。
-2. 每周/月度温柔回顾。
-3. 训练计划建议。
-4. 船只描述或资产 prompt。
+- 航海日志生成。
+- provider/model/prompt version 配置。
+- template fallback。
+- LLM 失败不阻断打卡。
+
+后续接入顺序：
+
+1. 每周/月度温柔回顾。
+2. 训练计划建议。
+3. 船只描述或资产 prompt。
 
 硬边界：
 
