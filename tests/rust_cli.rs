@@ -307,20 +307,32 @@ fn cli_plan_commands_update_today_task() {
 
     Command::cargo_bin("bestman")
         .unwrap()
+        .args(["--home", home.to_str().unwrap(), "plan", "next"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("today: 深蹲 3x12"));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "plan", "next"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("today: 快走 20 分钟"));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
         .args(["--home", home.to_str().unwrap(), "status", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"plan_goal\": \"减脂保状态\""))
-        .stdout(predicate::str::contains(
-            "\"daily_task\": \"轻量拉伸 15 分钟\"",
-        ));
+        .stdout(predicate::str::contains("\"daily_task\": \"快走 20 分钟\""));
 
     Command::cargo_bin("bestman")
         .unwrap()
         .args(["--home", home.to_str().unwrap(), "done", "--dice", "1"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("task: 轻量拉伸 15 分钟"));
+        .stdout(predicate::str::contains("task: 快走 20 分钟"));
 }
 
 #[test]

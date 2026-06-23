@@ -151,6 +151,10 @@ enum PlanCommand {
         #[arg(long, default_value = "manual adjustment")]
         reason: String,
     },
+    Next {
+        #[arg(long, default_value = "next planned task")]
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -318,6 +322,15 @@ pub fn run() -> Result<()> {
                     }
                 }
                 PlanCommand::SetToday { task, reason } => {
+                    app.store
+                        .append(rules::plan_adjusted_event(today(), task, reason)?)?;
+                    app.rebuild_projection()?;
+                    let dash = app.projection.dashboard()?;
+                    println!("today: {}", dash.daily_task);
+                }
+                PlanCommand::Next { reason } => {
+                    let dash = app.projection.dashboard()?;
+                    let task = next_plan_task(&dash)?;
                     app.store
                         .append(rules::plan_adjusted_event(today(), task, reason)?)?;
                     app.rebuild_projection()?;
@@ -536,6 +549,19 @@ fn reset_home(home: &Path, yes: bool) -> Result<()> {
     }
     println!("bestman data reset: {}", home.display());
     Ok(())
+}
+
+fn next_plan_task(dash: &crate::projection::Dashboard) -> Result<String> {
+    if dash.plan_tasks.is_empty() {
+        bail!("no plan tasks available; run plan create first");
+    }
+    let next = dash
+        .plan_tasks
+        .iter()
+        .position(|task| task == &dash.daily_task)
+        .map(|idx| (idx + 1) % dash.plan_tasks.len())
+        .unwrap_or(0);
+    Ok(dash.plan_tasks[next].clone())
 }
 
 fn print_dashboard(app: &BestmanApp, dash: &crate::projection::Dashboard) {

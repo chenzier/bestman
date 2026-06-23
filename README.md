@@ -62,6 +62,7 @@ q / Esc / Ctrl-C
 | `bestman --home <dir> plan create --goal <goal> --tasks "A,B"` | 创建本地轻量训练计划 |
 | `bestman --home <dir> plan show` | 查看当前计划和今日任务 |
 | `bestman --home <dir> plan set-today "<task>"` | 手动调整今日任务 |
+| `bestman --home <dir> plan next` | 切换到计划中的下一项任务 |
 | `bestman --home <dir> vessel list` | 查看可用船只 |
 | `bestman --home <dir> vessel set <id>` | 切换当前船只 |
 | `bestman --home <dir> shop list` | 查看商店船只、价格、稀有度和拥有状态 |
