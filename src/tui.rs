@@ -26,6 +26,94 @@ use crate::terminal_image::{self, ImageProtocol};
 use crate::vessels::catalog::VesselCatalog;
 use crate::vessels::render::FrameCache;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DashboardTab {
+    Today,
+    Plan,
+    Shop,
+    Fleet,
+    Log,
+}
+
+impl DashboardTab {
+    const ALL: [DashboardTab; 5] = [
+        DashboardTab::Today,
+        DashboardTab::Plan,
+        DashboardTab::Shop,
+        DashboardTab::Fleet,
+        DashboardTab::Log,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            DashboardTab::Today => "Today",
+            DashboardTab::Plan => "Plan",
+            DashboardTab::Shop => "Shop",
+            DashboardTab::Fleet => "Fleet",
+            DashboardTab::Log => "Log",
+        }
+    }
+
+    fn next(self) -> Self {
+        let idx = Self::ALL
+            .iter()
+            .position(|tab| *tab == self)
+            .unwrap_or_default();
+        Self::ALL[(idx + 1) % Self::ALL.len()]
+    }
+
+    fn previous(self) -> Self {
+        let idx = Self::ALL
+            .iter()
+            .position(|tab| *tab == self)
+            .unwrap_or_default();
+        Self::ALL[(idx + Self::ALL.len() - 1) % Self::ALL.len()]
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TuiState {
+    tab: DashboardTab,
+    shop_selected: usize,
+    fleet_selected: usize,
+}
+
+impl Default for TuiState {
+    fn default() -> Self {
+        Self {
+            tab: DashboardTab::Today,
+            shop_selected: 0,
+            fleet_selected: 0,
+        }
+    }
+}
+
+impl TuiState {
+    fn next_tab(&mut self) {
+        self.tab = self.tab.next();
+    }
+
+    fn previous_tab(&mut self) {
+        self.tab = self.tab.previous();
+    }
+
+    fn move_selection(&mut self, catalog: &VesselCatalog, delta: isize) {
+        let len = catalog.vessel_items().count();
+        if len == 0 {
+            self.shop_selected = 0;
+            self.fleet_selected = 0;
+            return;
+        }
+        let selected = match self.tab {
+            DashboardTab::Shop => &mut self.shop_selected,
+            DashboardTab::Fleet => &mut self.fleet_selected,
+            _ => return,
+        };
+        let next = (*selected as isize + delta).clamp(0, len.saturating_sub(1) as isize);
+        *selected = next as usize;
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LiveTuiOptions {
     pub ticks: Option<u16>,
@@ -58,7 +146,20 @@ impl Default for LiveTuiOptions {
 pub fn render_static_dashboard(app: &BestmanApp) -> Result<()> {
     let dash = app.projection.dashboard()?;
     let _ = companion_frame_path(app, &dash)?;
-    println!("{}", render_pet_snapshot(&dash, false, 0, Some(1), 96, 32)?);
+    let catalog = VesselCatalog::load_with_user_dir(&app.paths.home.join("vessels"))?;
+    println!(
+        "{}",
+        render_pet_snapshot(
+            &dash,
+            &catalog,
+            &TuiState::default(),
+            false,
+            0,
+            Some(1),
+            96,
+            32
+        )?
+    );
     Ok(())
 }
 
@@ -98,6 +199,8 @@ fn run_live_dashboard_inner(
     };
     let mut image_frames = Vec::new();
     let mut last_image_frame_key: Option<String> = None;
+    let catalog = VesselCatalog::load_with_user_dir(&app.paths.home.join("vessels"))?;
+    let mut ui_state = TuiState::default();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let tick_limit = options.ticks.map(|ticks| ticks.max(1));
@@ -115,13 +218,13 @@ fn run_live_dashboard_inner(
             }
         }
         if let Some(action) = scripted_actions.get(tick).copied() {
-            match apply_action(app, action, options.forced_dice) {
+            match apply_action(app, &catalog, &mut ui_state, action, options.forced_dice) {
                 UiAction::Continue => {}
                 UiAction::Quit => break,
                 UiAction::Notice(message) => notice = Some(message),
             }
         } else if options.raw_mode {
-            match handle_pending_input(app, options.forced_dice)? {
+            match handle_pending_input(app, &catalog, &mut ui_state, options.forced_dice)? {
                 UiAction::Continue => {}
                 UiAction::Quit => break,
                 UiAction::Notice(message) => notice = Some(message),
@@ -133,13 +236,15 @@ fn run_live_dashboard_inner(
             draw_pet_dashboard(
                 frame,
                 &dash,
+                &catalog,
+                &ui_state,
                 image_protocol == ImageProtocol::Kitty,
                 tick + 1,
                 tick_limit,
                 notice.as_deref(),
             );
         })?;
-        if image_protocol == ImageProtocol::Kitty {
+        if image_protocol == ImageProtocol::Kitty && ui_state.tab == DashboardTab::Today {
             let image_result = (|| -> Result<()> {
                 refresh_image_frames(app, &mut image_frames, &mut last_image_frame_key)?;
                 let size = terminal.size()?;
@@ -159,10 +264,23 @@ fn run_live_dashboard_inner(
                 image_protocol = ImageProtocol::None;
                 notice = Some(format!("Image mode disabled: {err}"));
             }
+        } else if image_protocol == ImageProtocol::Kitty {
+            write!(
+                terminal.backend_mut(),
+                "{}",
+                terminal_image::kitty_delete(options.image_id)
+            )?;
+            terminal.backend_mut().flush()?;
         }
         tick = tick.saturating_add(1);
         if scripted_actions.is_empty() && options.raw_mode {
-            match wait_for_next_frame(app, options.forced_dice, options.tick_ms)? {
+            match wait_for_next_frame(
+                app,
+                &catalog,
+                &mut ui_state,
+                options.forced_dice,
+                options.tick_ms,
+            )? {
                 UiAction::Continue => {}
                 UiAction::Quit => break,
                 UiAction::Notice(message) => notice = Some(message),
@@ -187,10 +305,15 @@ enum UiAction {
     Notice(String),
 }
 
-fn handle_pending_input(app: &mut BestmanApp, forced_dice: Option<u32>) -> Result<UiAction> {
+fn handle_pending_input(
+    app: &mut BestmanApp,
+    catalog: &VesselCatalog,
+    ui_state: &mut TuiState,
+    forced_dice: Option<u32>,
+) -> Result<UiAction> {
     while poll(Duration::from_millis(0))? {
         if let Event::Key(key) = read()? {
-            let action = handle_key(app, key, forced_dice);
+            let action = handle_key(app, catalog, ui_state, key, forced_dice);
             if !matches!(action, UiAction::Continue) {
                 return Ok(action);
             }
@@ -201,32 +324,55 @@ fn handle_pending_input(app: &mut BestmanApp, forced_dice: Option<u32>) -> Resul
 
 fn wait_for_next_frame(
     app: &mut BestmanApp,
+    catalog: &VesselCatalog,
+    ui_state: &mut TuiState,
     forced_dice: Option<u32>,
     tick_ms: u64,
 ) -> Result<UiAction> {
     let wait = Duration::from_millis(tick_ms);
     if poll(wait)? {
         if let Event::Key(key) = read()? {
-            let action = handle_key(app, key, forced_dice);
+            let action = handle_key(app, catalog, ui_state, key, forced_dice);
             if !matches!(action, UiAction::Continue) {
                 return Ok(action);
             }
         }
-        return handle_pending_input(app, forced_dice);
+        return handle_pending_input(app, catalog, ui_state, forced_dice);
     }
     Ok(UiAction::Continue)
 }
 
-fn handle_key(app: &mut BestmanApp, key: KeyEvent, forced_dice: Option<u32>) -> UiAction {
+fn handle_key(
+    app: &mut BestmanApp,
+    catalog: &VesselCatalog,
+    ui_state: &mut TuiState,
+    key: KeyEvent,
+    forced_dice: Option<u32>,
+) -> UiAction {
     if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c')) {
         return UiAction::Quit;
     }
-    let action = match key.code {
-        KeyCode::Char(ch) => ch,
-        KeyCode::Esc => 'q',
-        _ => '\0',
-    };
-    apply_action(app, action, forced_dice)
+    match key.code {
+        KeyCode::Tab => {
+            ui_state.next_tab();
+            UiAction::Continue
+        }
+        KeyCode::BackTab => {
+            ui_state.previous_tab();
+            UiAction::Continue
+        }
+        KeyCode::Up => {
+            ui_state.move_selection(catalog, -1);
+            UiAction::Continue
+        }
+        KeyCode::Down => {
+            ui_state.move_selection(catalog, 1);
+            UiAction::Continue
+        }
+        KeyCode::Char(ch) => apply_action(app, catalog, ui_state, ch, forced_dice),
+        KeyCode::Esc => UiAction::Quit,
+        _ => UiAction::Continue,
+    }
 }
 
 fn image_frame_stride(tick_ms: u64) -> usize {
@@ -236,6 +382,8 @@ fn image_frame_stride(tick_ms: u64) -> usize {
 
 fn render_pet_snapshot(
     dash: &Dashboard,
+    catalog: &VesselCatalog,
+    ui_state: &TuiState,
     images_enabled: bool,
     tick: usize,
     ticks: Option<u16>,
@@ -244,7 +392,18 @@ fn render_pet_snapshot(
 ) -> Result<String> {
     let backend = ratatui::backend::TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend)?;
-    terminal.draw(|frame| draw_pet_dashboard(frame, dash, images_enabled, tick, ticks, None))?;
+    terminal.draw(|frame| {
+        draw_pet_dashboard(
+            frame,
+            dash,
+            catalog,
+            ui_state,
+            images_enabled,
+            tick,
+            ticks,
+            None,
+        )
+    })?;
     Ok(strip_test_backend_quotes(&terminal.backend().to_string()))
 }
 
@@ -267,6 +426,8 @@ fn strip_test_backend_quotes(text: &str) -> String {
 fn draw_pet_dashboard(
     frame: &mut ratatui::Frame<'_>,
     dash: &Dashboard,
+    catalog: &VesselCatalog,
+    ui_state: &TuiState,
     images_enabled: bool,
     tick: usize,
     ticks: Option<u16>,
@@ -274,8 +435,6 @@ fn draw_pet_dashboard(
 ) {
     let area = frame.area();
     let areas = dashboard_areas(area);
-    let progress = progress_ratio(dash);
-    let today_recorded = dash.last_action_date == Some(Local::now().date_naive());
 
     let title = Line::from(vec![
         Span::styled(
@@ -308,6 +467,43 @@ fn draw_pet_dashboard(
         areas.header,
     );
 
+    frame.render_widget(
+        Paragraph::new(tab_bar_lines(ui_state.tab))
+            .alignment(Alignment::Center)
+            .block(Block::default().borders(Borders::BOTTOM)),
+        areas.tabs,
+    );
+
+    match ui_state.tab {
+        DashboardTab::Today => draw_today_tab(frame, dash, images_enabled, notice, &areas),
+        DashboardTab::Plan => draw_plan_tab(frame, dash, notice, areas.body),
+        DashboardTab::Shop => draw_shop_tab(frame, dash, catalog, ui_state, notice, areas.body),
+        DashboardTab::Fleet => draw_fleet_tab(frame, dash, catalog, ui_state, notice, areas.body),
+        DashboardTab::Log => draw_log_tab(frame, dash, notice, areas.body),
+    }
+
+    let footer = match ticks {
+        Some(limit) => format!("frame {tick}/{limit}   Tab switch   q quit"),
+        None => format!("frame {tick}   Tab switch   q quit"),
+    };
+    frame.render_widget(
+        Paragraph::new(footer)
+            .alignment(Alignment::Right)
+            .style(Style::default().fg(Color::DarkGray)),
+        areas.footer,
+    );
+}
+
+fn draw_today_tab(
+    frame: &mut ratatui::Frame<'_>,
+    dash: &Dashboard,
+    images_enabled: bool,
+    notice: Option<&str>,
+    areas: &DashboardAreas,
+) {
+    let progress = progress_ratio(dash);
+    let today_recorded = dash.last_action_date == Some(Local::now().date_naive());
+
     let stage_lines = if images_enabled {
         vec![
             Line::raw(""),
@@ -338,7 +534,363 @@ fn draw_pet_dashboard(
         areas.companion,
     );
 
-    let mut action_lines = vec![
+    frame.render_widget(
+        Paragraph::new(today_action_lines(dash, today_recorded, notice))
+            .block(
+                Block::default()
+                    .title(" Today ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(if today_recorded {
+                        Color::Green
+                    } else {
+                        Color::Yellow
+                    })),
+            )
+            .wrap(ratatui::widgets::Wrap { trim: true }),
+        areas.today,
+    );
+
+    let gauge = Gauge::default()
+        .block(
+            Block::default()
+                .title(" Route progress ")
+                .borders(Borders::ALL),
+        )
+        .gauge_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
+        .ratio(progress)
+        .label(format!("{:.0}%  {}", progress * 100.0, compact_route(dash)));
+    frame.render_widget(gauge, areas.progress);
+}
+
+fn draw_plan_tab(
+    frame: &mut ratatui::Frame<'_>,
+    dash: &Dashboard,
+    notice: Option<&str>,
+    area: Rect,
+) {
+    let mut lines = vec![
+        Line::styled(
+            "Training Plan",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("Goal  ", Style::default().fg(Color::DarkGray)),
+            Span::raw(
+                dash.plan_goal
+                    .clone()
+                    .unwrap_or_else(|| "No plan yet. Use `bestman plan create`.".to_string()),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Today ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                dash.daily_task.clone(),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::raw(""),
+        Line::styled("Tasks", Style::default().fg(Color::DarkGray)),
+    ];
+    if dash.plan_tasks.is_empty() {
+        lines.push(Line::raw("No plan tasks yet."));
+    } else {
+        for (idx, task) in dash.plan_tasks.iter().enumerate() {
+            lines.push(Line::raw(format!("{:>2}. {task}", idx + 1)));
+        }
+    }
+    push_notice(&mut lines, notice);
+    lines.push(Line::raw(""));
+    lines.push(Line::styled(
+        "Tab switch pages   q quit",
+        Style::default().fg(Color::DarkGray),
+    ));
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" Plan ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::LightBlue)),
+            )
+            .wrap(ratatui::widgets::Wrap { trim: true }),
+        area,
+    );
+}
+
+fn draw_shop_tab(
+    frame: &mut ratatui::Frame<'_>,
+    dash: &Dashboard,
+    catalog: &VesselCatalog,
+    ui_state: &TuiState,
+    notice: Option<&str>,
+    area: Rect,
+) {
+    let mut lines = vec![
+        Line::styled(
+            "Ship Shop",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Line::from(vec![
+            Span::styled("Coins ", Style::default().fg(Color::DarkGray)),
+            Span::styled(dash.coins.to_string(), Style::default().fg(Color::Yellow)),
+            Span::raw("   "),
+            Span::styled("Buy ", Style::default().fg(Color::DarkGray)),
+            Span::styled("B", Style::default().fg(Color::Yellow)),
+            Span::raw("   "),
+            Span::styled("Move ", Style::default().fg(Color::DarkGray)),
+            Span::raw("↑/↓"),
+        ]),
+        Line::raw(""),
+    ];
+    let selected = bounded_selection(ui_state.shop_selected, catalog.vessel_items().count());
+    for (idx, item) in catalog.vessel_items().enumerate() {
+        let owned = dash.owned_items.iter().any(|id| id == &item.id);
+        let affordable = dash.coins >= item.price;
+        let name = catalog_vessel_name(catalog, &item.id);
+        let status = if owned {
+            "owned"
+        } else if affordable {
+            "available"
+        } else {
+            "need coins"
+        };
+        let style = if idx == selected {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else if owned {
+            Style::default().fg(Color::Green)
+        } else if affordable {
+            Style::default().fg(Color::White)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        lines.push(Line::styled(
+            format!(
+                "{} {:<18} {:<22} price {:>3}  {:<8}  {}",
+                if idx == selected { ">" } else { " " },
+                item.id,
+                name,
+                item.price,
+                item.rarity,
+                status
+            ),
+            style,
+        ));
+    }
+    push_notice(&mut lines, notice);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" Shop ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            )
+            .wrap(ratatui::widgets::Wrap { trim: true }),
+        area,
+    );
+}
+
+fn draw_fleet_tab(
+    frame: &mut ratatui::Frame<'_>,
+    dash: &Dashboard,
+    catalog: &VesselCatalog,
+    ui_state: &TuiState,
+    notice: Option<&str>,
+    area: Rect,
+) {
+    let mut lines = vec![
+        Line::styled(
+            "Fleet",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Line::from(vec![
+            Span::styled("Current ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                catalog_vessel_name(catalog, &dash.current_vessel),
+                Style::default().fg(Color::Cyan),
+            ),
+            Span::raw("   "),
+            Span::styled("Equip ", Style::default().fg(Color::DarkGray)),
+            Span::styled("E", Style::default().fg(Color::Yellow)),
+            Span::raw("   "),
+            Span::styled("Move ", Style::default().fg(Color::DarkGray)),
+            Span::raw("↑/↓"),
+        ]),
+        Line::raw(""),
+    ];
+    let selected = bounded_selection(ui_state.fleet_selected, catalog.vessel_items().count());
+    for (idx, item) in catalog.vessel_items().enumerate() {
+        let owned = dash.owned_vessels.iter().any(|id| id == &item.id);
+        let equipped = dash.current_vessel == item.id;
+        let status = if equipped {
+            "equipped"
+        } else if owned {
+            "owned"
+        } else {
+            "locked"
+        };
+        let style = if idx == selected {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::LightBlue)
+                .add_modifier(Modifier::BOLD)
+        } else if equipped {
+            Style::default().fg(Color::Cyan)
+        } else if owned {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        lines.push(Line::styled(
+            format!(
+                "{} {:<18} {:<22} {:<8}  {}",
+                if idx == selected { ">" } else { " " },
+                item.id,
+                catalog_vessel_name(catalog, &item.id),
+                item.rarity,
+                status
+            ),
+            style,
+        ));
+    }
+    push_notice(&mut lines, notice);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" Fleet ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::LightBlue)),
+            )
+            .wrap(ratatui::widgets::Wrap { trim: true }),
+        area,
+    );
+}
+
+fn draw_log_tab(
+    frame: &mut ratatui::Frame<'_>,
+    dash: &Dashboard,
+    notice: Option<&str>,
+    area: Rect,
+) {
+    let log = dash
+        .latest_log
+        .as_deref()
+        .unwrap_or("The sea is quiet. Today's log will appear after the next check-in.");
+    let mut lines = vec![
+        Line::styled(
+            "Captain's Log",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Line::raw(""),
+        Line::raw(log.to_string()),
+    ];
+    push_notice(&mut lines, notice);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" Log ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Green)),
+            )
+            .wrap(ratatui::widgets::Wrap { trim: true }),
+        area,
+    );
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DashboardAreas {
+    header: Rect,
+    tabs: Rect,
+    body: Rect,
+    companion: Rect,
+    today: Rect,
+    progress: Rect,
+    footer: Rect,
+}
+
+fn dashboard_areas(area: Rect) -> DashboardAreas {
+    let root = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(2),
+            Constraint::Min(12),
+            Constraint::Length(3),
+            Constraint::Length(1),
+        ])
+        .split(area);
+    let main = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(64), Constraint::Percentage(36)])
+        .split(root[2]);
+    DashboardAreas {
+        header: root[0],
+        tabs: root[1],
+        body: root[2],
+        companion: main[0],
+        today: main[1],
+        progress: root[3],
+        footer: root[4],
+    }
+}
+
+fn companion_image_origin(area: Rect) -> (u16, u16) {
+    let areas = dashboard_areas(area);
+    (
+        areas.companion.x.saturating_add(4),
+        areas.companion.y.saturating_add(3),
+    )
+}
+
+fn tab_bar_lines(current: DashboardTab) -> Vec<Line<'static>> {
+    let mut spans = Vec::new();
+    for tab in DashboardTab::ALL {
+        if !spans.is_empty() {
+            spans.push(Span::raw("  "));
+        }
+        let label = format!(" {} ", tab.label());
+        if tab == current {
+            spans.push(Span::styled(
+                label,
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::styled(label, Style::default().fg(Color::DarkGray)));
+        }
+    }
+    vec![Line::from(spans)]
+}
+
+fn today_action_lines(
+    dash: &Dashboard,
+    today_recorded: bool,
+    notice: Option<&str>,
+) -> Vec<Line<'static>> {
+    let mut lines = vec![
         Line::styled(
             if today_recorded {
                 "Today is done"
@@ -386,128 +938,59 @@ fn draw_pet_dashboard(
             ),
         ]),
     ];
-    if let Some(notice) = notice {
-        action_lines.push(Line::raw(""));
-        action_lines.push(Line::styled(
-            notice.to_string(),
-            Style::default().fg(Color::Cyan),
-        ));
-    }
-    action_lines.extend([
+    push_notice(&mut lines, notice);
+    lines.extend([
         Line::raw(""),
         Line::styled("Check in", Style::default().fg(Color::DarkGray)),
         Line::styled("[F] Full training", Style::default().fg(Color::Yellow)),
         Line::styled("[N] Normal   [L] Light", Style::default().fg(Color::Yellow)),
         Line::styled(
-            "[S] Rest     [Q] Quit",
+            "[S] Rest     [Tab] Plan/Shop/Fleet/Log     [Q] Quit",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
-    frame.render_widget(
-        Paragraph::new(action_lines)
-            .block(
-                Block::default()
-                    .title(" Today ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(if today_recorded {
-                        Color::Green
-                    } else {
-                        Color::Yellow
-                    })),
-            )
-            .wrap(ratatui::widgets::Wrap { trim: true }),
-        areas.today,
-    );
-
-    let gauge = Gauge::default()
-        .block(
-            Block::default()
-                .title(" Route progress ")
-                .borders(Borders::ALL),
-        )
-        .gauge_style(
-            Style::default()
-                .fg(Color::Yellow)
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        )
-        .ratio(progress)
-        .label(format!("{:.0}%  {}", progress * 100.0, compact_route(dash)));
-    frame.render_widget(gauge, areas.progress);
-
-    let log = dash
-        .latest_log
-        .as_deref()
-        .unwrap_or("The sea is quiet. Today's log will appear after the next check-in.");
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::styled(
-                "Captain's Log",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Line::raw(""),
-            Line::raw(log),
-        ])
-        .block(Block::default().borders(Borders::ALL))
-        .wrap(ratatui::widgets::Wrap { trim: true }),
-        areas.log,
-    );
-
-    let footer = match ticks {
-        Some(limit) => format!("frame {tick}/{limit}"),
-        None => format!("frame {tick}   q quits"),
-    };
-    frame.render_widget(
-        Paragraph::new(footer)
-            .alignment(Alignment::Right)
-            .style(Style::default().fg(Color::DarkGray)),
-        areas.footer,
-    );
+    lines
 }
 
-#[derive(Debug, Clone, Copy)]
-struct DashboardAreas {
-    header: Rect,
-    companion: Rect,
-    today: Rect,
-    progress: Rect,
-    log: Rect,
-    footer: Rect,
-}
-
-fn dashboard_areas(area: Rect) -> DashboardAreas {
-    let root = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(16),
-            Constraint::Length(3),
-            Constraint::Length(7),
-            Constraint::Length(1),
-        ])
-        .split(area);
-    let main = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(64), Constraint::Percentage(36)])
-        .split(root[1]);
-    DashboardAreas {
-        header: root[0],
-        companion: main[0],
-        today: main[1],
-        progress: root[2],
-        log: root[3],
-        footer: root[4],
+fn push_notice(lines: &mut Vec<Line<'static>>, notice: Option<&str>) {
+    if let Some(notice) = notice {
+        lines.push(Line::raw(""));
+        lines.push(Line::styled(
+            notice.to_string(),
+            Style::default().fg(Color::Cyan),
+        ));
     }
 }
 
-fn companion_image_origin(area: Rect) -> (u16, u16) {
-    let areas = dashboard_areas(area);
-    (
-        areas.companion.x.saturating_add(4),
-        areas.companion.y.saturating_add(3),
-    )
+fn bounded_selection(selected: usize, len: usize) -> usize {
+    if len == 0 {
+        0
+    } else {
+        selected.min(len.saturating_sub(1))
+    }
+}
+
+fn catalog_vessel_name(catalog: &VesselCatalog, id: &str) -> String {
+    catalog
+        .find(id)
+        .map(|vessel| vessel.display_name.clone())
+        .unwrap_or_else(|| vessel_name(id))
+}
+
+fn selected_shop_item<'a>(
+    catalog: &'a VesselCatalog,
+    ui_state: &TuiState,
+) -> Option<&'a crate::vessels::catalog::CatalogItem> {
+    let selected = bounded_selection(ui_state.shop_selected, catalog.vessel_items().count());
+    catalog.vessel_items().nth(selected)
+}
+
+fn selected_fleet_item<'a>(
+    catalog: &'a VesselCatalog,
+    ui_state: &TuiState,
+) -> Option<&'a crate::vessels::catalog::CatalogItem> {
+    let selected = bounded_selection(ui_state.fleet_selected, catalog.vessel_items().count());
+    catalog.vessel_items().nth(selected)
 }
 
 fn progress_ratio(dash: &Dashboard) -> f64 {
@@ -673,27 +1156,59 @@ fn write_kitty_frame<W: Write>(
     Ok(())
 }
 
-fn apply_action(app: &mut BestmanApp, action: char, forced_dice: Option<u32>) -> UiAction {
+fn apply_action(
+    app: &mut BestmanApp,
+    catalog: &VesselCatalog,
+    ui_state: &mut TuiState,
+    action: char,
+    forced_dice: Option<u32>,
+) -> UiAction {
     match action {
-        'l' | 'L' => {
+        '[' => {
+            ui_state.previous_tab();
+        }
+        ']' | '\t' => {
+            ui_state.next_tab();
+        }
+        'j' | 'J' => {
+            ui_state.move_selection(catalog, 1);
+        }
+        'k' | 'K' => {
+            ui_state.move_selection(catalog, -1);
+        }
+        'l' | 'L' if ui_state.tab == DashboardTab::Today => {
             return action_notice(
                 append_check_in(app, CompletionLevel::Light, forced_dice),
                 "Light check-in recorded.",
             );
         }
-        'n' | 'N' => {
+        'n' | 'N' if ui_state.tab == DashboardTab::Today => {
             return action_notice(
                 append_check_in(app, CompletionLevel::Normal, forced_dice),
                 "Normal check-in recorded.",
             );
         }
-        'f' | 'F' => {
+        'f' | 'F' if ui_state.tab == DashboardTab::Today => {
             return action_notice(
                 append_check_in(app, CompletionLevel::Full, forced_dice),
                 "Full check-in recorded.",
             );
         }
-        's' | 'S' => return action_notice(append_skip(app), "Rest recorded."),
+        's' | 'S' if ui_state.tab == DashboardTab::Today => {
+            return action_notice(append_skip(app), "Rest recorded.");
+        }
+        'b' | 'B' if ui_state.tab == DashboardTab::Shop => {
+            return action_notice(
+                purchase_selected_vessel(app, catalog, ui_state),
+                "Ship purchased.",
+            );
+        }
+        'e' | 'E' if ui_state.tab == DashboardTab::Fleet => {
+            return action_notice(
+                equip_selected_vessel(app, catalog, ui_state),
+                "Ship equipped.",
+            );
+        }
         'q' | 'Q' => return UiAction::Quit,
         _ => {}
     }
@@ -737,6 +1252,35 @@ fn append_skip(app: &mut BestmanApp) -> Result<()> {
         "tui rest".to_string(),
     )?;
     app.store.append(event)?;
+    app.rebuild_projection()?;
+    Ok(())
+}
+
+fn purchase_selected_vessel(
+    app: &mut BestmanApp,
+    catalog: &VesselCatalog,
+    ui_state: &TuiState,
+) -> Result<()> {
+    app.rebuild_projection()?;
+    let dash = app.projection.dashboard()?;
+    let item = selected_shop_item(catalog, ui_state)
+        .ok_or_else(|| anyhow::anyhow!("no shop item selected"))?;
+    app.store.append(rules::purchase_event(&dash, item)?)?;
+    app.rebuild_projection()?;
+    Ok(())
+}
+
+fn equip_selected_vessel(
+    app: &mut BestmanApp,
+    catalog: &VesselCatalog,
+    ui_state: &TuiState,
+) -> Result<()> {
+    app.rebuild_projection()?;
+    let dash = app.projection.dashboard()?;
+    let item = selected_fleet_item(catalog, ui_state)
+        .ok_or_else(|| anyhow::anyhow!("no fleet item selected"))?;
+    app.store
+        .append(rules::equip_vessel_event(&dash, item.id.clone())?)?;
     app.rebuild_projection()?;
     Ok(())
 }

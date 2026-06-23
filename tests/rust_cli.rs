@@ -461,10 +461,15 @@ fn cli_tui_generates_companion_preview() {
         .args(["--home", home.to_str().unwrap(), "tui"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("Today"))
+        .stdout(predicate::str::contains("Plan"))
+        .stdout(predicate::str::contains("Shop"))
+        .stdout(predicate::str::contains("Fleet"))
+        .stdout(predicate::str::contains("Log"))
         .stdout(predicate::str::contains("Starter Sloop"))
         .stdout(predicate::str::contains("Task 深蹲 3x15"))
         .stdout(predicate::str::contains("Ready for today's training."))
-        .stdout(predicate::str::contains("Captain's Log"))
+        .stdout(predicate::str::contains("Route progress"))
         .stdout(predicate::str::contains("Hidden by multi-width symbols").not());
 
     assert!(home.join("cache/vessel-frames").exists());
@@ -529,6 +534,40 @@ fn cli_live_tui_can_quit_without_tick_limit() {
         .success()
         .stdout(predicate::str::contains("live_tui_completed"))
         .stdout(predicate::str::contains("ticks=").not());
+}
+
+#[test]
+fn cli_live_tui_script_can_switch_tabs() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "tui",
+            "--live",
+            "--tick-ms",
+            "0",
+            "--no-alt-screen",
+            "--no-raw-mode",
+            "--script",
+            "]]]]q",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Training Plan"))
+        .stdout(predicate::str::contains("Ship Shop"))
+        .stdout(predicate::str::contains("Fleet"))
+        .stdout(predicate::str::contains("Captain's Log"))
+        .stdout(predicate::str::contains("live_tui_completed"));
 }
 
 #[test]
@@ -685,6 +724,86 @@ fn cli_live_tui_script_can_skip_or_rest() {
         .assert()
         .success()
         .stdout(predicate::str::contains("小帆船"));
+}
+
+#[test]
+fn cli_live_tui_script_can_buy_and_equip_custom_vessel() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    let custom_dir = home.join("vessels/custom_sloop");
+    std::fs::create_dir_all(&custom_dir).unwrap();
+    std::fs::write(
+        home.join("catalog.json"),
+        r#"{
+            "items": [
+                {
+                    "id": "custom_sloop",
+                    "kind": "vessel",
+                    "rarity": "common",
+                    "price": 0,
+                    "unlock": { "type": "always" },
+                    "assetPath": "vessels/custom_sloop/vessel.json",
+                    "tags": ["test"]
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        custom_dir.join("vessel.json"),
+        r#"{
+            "id":"custom_sloop",
+            "displayName":"Custom Sloop",
+            "description":"custom test vessel",
+            "spritesheetPath":"spritesheet.png",
+            "frame":{"width":32,"height":32,"columns":2,"rows":2},
+            "animations":{
+                "idle":{"frames":[0],"fps":6.0,"looped":true,"fallback":"idle"},
+                "sailing":{"frames":[1],"fps":6.0,"looped":true,"fallback":"idle"},
+                "resting":{"frames":[2],"fps":6.0,"looped":true,"fallback":"idle"},
+                "celebrating":{"frames":[3],"fps":6.0,"looped":true,"fallback":"idle"}
+            }
+        }"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "tui",
+            "--live",
+            "--ticks",
+            "8",
+            "--tick-ms",
+            "0",
+            "--no-alt-screen",
+            "--no-raw-mode",
+            "--script",
+            "]]jb]jeq",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Ship purchased."))
+        .stdout(predicate::str::contains("Custom Sloop"))
+        .stdout(predicate::str::contains("live_tui_completed ticks=8"));
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "status", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"current_vessel\": \"custom_sloop\"",
+        ))
+        .stdout(predicate::str::contains("\"custom_sloop\""));
 }
 
 #[test]

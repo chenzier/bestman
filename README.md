@@ -77,11 +77,17 @@ q / Esc / Ctrl-C
 
 | 按键 | 说明 |
 |------|------|
+| `Tab` / `Shift-Tab` | 切换 Today / Plan / Shop / Fleet / Log |
 | `L` | light 打卡 |
 | `N` | normal 打卡 |
 | `F` | full 打卡 |
 | `S` | rest/skip |
+| `↑` / `↓` | 在 Shop / Fleet 中移动选择 |
+| `B` | 在 Shop 中购买当前选中船只 |
+| `E` | 在 Fleet 中装备当前选中船只 |
 | `Q` / `Esc` / `Ctrl-C` | 退出 |
+
+自动化脚本模式可用 `]` / `[` 模拟切换 tab，`j` / `k` 模拟上下移动。
 
 ## 数据目录
 
