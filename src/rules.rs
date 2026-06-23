@@ -314,6 +314,27 @@ pub fn captain_chat_generated_event(
     }))
 }
 
+pub fn weight_recorded_event(
+    date: NaiveDate,
+    weight_kg: f64,
+    note: Option<String>,
+) -> Result<StoredEvent> {
+    if !weight_kg.is_finite() || weight_kg <= 0.0 {
+        bail!("weight must be a positive number");
+    }
+    if weight_kg < 20.0 || weight_kg > 400.0 {
+        bail!("weight must be between 20kg and 400kg");
+    }
+    let note = note
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty());
+    Ok(StoredEvent::new(EventKind::WeightRecorded {
+        date,
+        weight_kg,
+        note,
+    }))
+}
+
 fn is_rest_day(config: &BestmanConfig, date: NaiveDate) -> bool {
     let weekday = date.weekday().to_string().to_lowercase();
     let short = &weekday[..3];

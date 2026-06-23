@@ -105,6 +105,11 @@ pub enum EventKind {
         model: String,
         prompt_version: String,
     },
+    WeightRecorded {
+        date: NaiveDate,
+        weight_kg: f64,
+        note: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

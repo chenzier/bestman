@@ -12,7 +12,14 @@ Rust 版当前只实现了每日打卡级别：
 - full
 - skip/rest
 
-还没有体重记录、伤病咨询、动作指导。
+已补回基础体重记录：
+
+- `bestman weigh <kg> [--note ...]`
+- `bestman progress`
+- `WeightRecorded` 事件
+- SQLite projection 里的最新体重、最近记录和趋势摘要
+
+还没有伤病咨询、动作指导或 LLM 健康建议。
 
 ## v1 目标
 
@@ -23,9 +30,9 @@ Rust 版当前只实现了每日打卡级别：
 - 打卡反馈温柔，不羞辱用户。
 - 休息是正当状态，不是失败。
 
-## v2 体重记录
+## v2 体重记录（已完成）
 
-可加入轻量命令：
+轻量命令：
 
 ```bash
 bestman weigh 72.5
@@ -38,7 +45,7 @@ bestman progress
 WeightRecorded
 ```
 
-SQLite projection 可维护：
+SQLite projection 维护：
 
 - 最新体重
 - 最近 N 次体重

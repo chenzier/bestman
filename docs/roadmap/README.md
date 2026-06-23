@@ -68,6 +68,7 @@ Rust CLI/TUI
 | `recap` 长期/周/月回顾 | 已落地，有 LLM/template fallback |
 | 里程碑史诗 | 已落地，到达里程碑时自动写入日志 |
 | `talk` 船长聊天 | 已落地，只生成回复不改状态 |
+| `weigh` / `progress` 体重记录 | 已落地，事件源 + SQLite projection |
 | `config show` / `rebuild` / `vessel validate` | 已落地 |
 | Rust 测试 | 已落地 |
 | Python prototype 移除 | 已落地 |
@@ -191,10 +192,17 @@ Rust CLI/TUI
 - 支持 LLM/template fallback。
 - 继续只写叙事，不改规则状态。
 
+### v3.4 — 体重记录与趋势（已完成）
+
+- `weigh <kg> [--note ...]` 记录体重。
+- `progress` 展示最新体重、最近记录和温和趋势。
+- `WeightRecorded` 事件可通过 SQLite projection 重建。
+- 不做诊断，不给高风险医疗建议。
+
 ### v3.x — 后续叙事 backlog
 
 - 船员/角色作为叙事扩展，而不是核心养成。
-- 饮食、体重、伤病建议作为可选模块。
+- 饮食、伤病建议作为可选模块。
 - 地图动态效果、创意工坊、社区资产市场。
 - 更细粒度的自动回顾调度。
 
@@ -233,7 +241,7 @@ Rust CLI/TUI
 | `talk` AI 教练 | 已迁回基础版 | v3.2 | 只聊天和建议，不让 LLM 自动改状态 |
 | `plan create/show/edit` | 重做 | v2.0 / [plan.md](plan.md) | 事件化轻量计划，不照搬 `plan.yaml` 复杂体系 |
 | 周回顾 AI 总结 | 暂缓 | v2/v3 / [other.md](other.md) | 等真实 LLM 稳定后再做 |
-| `weigh` / `progress` | 必须迁回但后置 | v2 / [fitness.md](fitness.md) | 走事件源，保持非焦虑反馈 |
+| `weigh` / `progress` | 已迁回基础版 | v3.4 / [fitness.md](fitness.md) | 走事件源，保持非焦虑反馈 |
 | 旧 50×14 地图主界面 | 重做 | [map.md](map.md) | 降级为长期进度背景，不进入 v1.2 |
 | `bestman map` / `stats` | 暂缓 | [map.md](map.md) | 先用 TUI progress 和 dashboard PNG |
 | 1-6 骰子 / 互动掷骰 | 重做 | v1.1/v2 | 当前 1-3 简化节奏；后续如恢复必须服务宠物反馈 |

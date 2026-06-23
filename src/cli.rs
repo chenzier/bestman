@@ -71,6 +71,12 @@ enum Command {
         #[arg(long)]
         llm: bool,
     },
+    Weigh {
+        weight_kg: f64,
+        #[arg(long)]
+        note: Option<String>,
+    },
+    Progress,
     Recap {
         #[arg(long)]
         llm: bool,
@@ -363,6 +369,21 @@ pub fn run() -> Result<()> {
             app.rebuild_projection()?;
             println!("Captain:");
             println!("{text}");
+        }
+        Command::Weigh { weight_kg, note } => {
+            let mut app = BestmanApp::open(paths)?;
+            app.store
+                .append(rules::weight_recorded_event(today(), weight_kg, note)?)?;
+            app.rebuild_projection()?;
+            let dash = app.projection.dashboard()?;
+            println!("weight recorded: {:.1}kg", weight_kg);
+            print_weight_progress(&dash);
+        }
+        Command::Progress => {
+            let mut app = BestmanApp::open(paths)?;
+            app.rebuild_projection()?;
+            let dash = app.projection.dashboard()?;
+            print_weight_progress(&dash);
         }
         Command::Recap { llm, period } => {
             let mut app = BestmanApp::open(paths)?;
@@ -714,9 +735,30 @@ fn print_dashboard(app: &BestmanApp, dash: &crate::projection::Dashboard) {
     if let Some(log) = &dash.latest_log {
         println!("log: {log}");
     }
+    if let Some(weight) = &dash.latest_weight {
+        println!("weight: {:.1}kg ({})", weight.weight_kg, weight.date);
+    }
 }
 
 fn status_json(dash: &crate::projection::Dashboard) -> serde_json::Value {
+    let latest_weight = dash.latest_weight.as_ref().map(|weight| {
+        serde_json::json!({
+            "date": weight.date.to_string(),
+            "weight_kg": weight.weight_kg,
+            "note": weight.note.as_ref(),
+        })
+    });
+    let recent_weights = dash
+        .recent_weights
+        .iter()
+        .map(|weight| {
+            serde_json::json!({
+                "date": weight.date.to_string(),
+                "weight_kg": weight.weight_kg,
+                "note": weight.note.as_ref(),
+            })
+        })
+        .collect::<Vec<_>>();
     serde_json::json!({
         "initialized": dash.initialized,
         "daily_task": dash.daily_task,
@@ -735,7 +777,48 @@ fn status_json(dash: &crate::projection::Dashboard) -> serde_json::Value {
         "last_action_date": dash.last_action_date.map(|date| date.to_string()),
         "last_action_kind": dash.last_action_kind,
         "latest_log": dash.latest_log,
+        "latest_weight": latest_weight,
+        "recent_weights": recent_weights,
     })
+}
+
+fn print_weight_progress(dash: &crate::projection::Dashboard) {
+    if dash.recent_weights.is_empty() {
+        println!("no weight records yet");
+        println!("Use `bestman weigh <kg>` to add one.");
+        return;
+    }
+    println!("Weight Progress");
+    if let Some(latest) = &dash.latest_weight {
+        println!("latest: {:.1}kg ({})", latest.weight_kg, latest.date);
+    }
+    if let Some(summary) = weight_trend_summary(&dash.recent_weights) {
+        println!("trend: {summary}");
+    }
+    println!("recent:");
+    for record in &dash.recent_weights {
+        if let Some(note) = &record.note {
+            println!("- {} {:.1}kg - {}", record.date, record.weight_kg, note);
+        } else {
+            println!("- {} {:.1}kg", record.date, record.weight_kg);
+        }
+    }
+}
+
+fn weight_trend_summary(weights: &[crate::projection::WeightRecord]) -> Option<String> {
+    let latest = weights.first()?;
+    let oldest = weights.last()?;
+    if weights.len() < 2 {
+        return Some("first record; keep the trend gentle and long-term".to_string());
+    }
+    let delta = latest.weight_kg - oldest.weight_kg;
+    if delta.abs() < 0.05 {
+        Some("stable across recent records".to_string())
+    } else if delta < 0.0 {
+        Some(format!("{:.1}kg lower across recent records", delta.abs()))
+    } else {
+        Some(format!("{:.1}kg higher across recent records", delta))
+    }
 }
 
 #[derive(Debug)]

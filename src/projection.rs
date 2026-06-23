@@ -26,6 +26,15 @@ pub struct Dashboard {
     pub last_action_date: Option<NaiveDate>,
     pub last_action_kind: Option<String>,
     pub latest_log: Option<String>,
+    pub latest_weight: Option<WeightRecord>,
+    pub recent_weights: Vec<WeightRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WeightRecord {
+    pub date: NaiveDate,
+    pub weight_kg: f64,
+    pub note: Option<String>,
 }
 
 pub struct Projection {
@@ -77,6 +86,12 @@ impl Projection {
                 item_id TEXT PRIMARY KEY,
                 kind TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS weight_records (
+                event_id TEXT PRIMARY KEY,
+                date TEXT NOT NULL,
+                weight_kg REAL NOT NULL,
+                note TEXT
+            );
             INSERT OR IGNORE INTO app_state (id) VALUES (1);
             "#,
         )?;
@@ -103,6 +118,7 @@ impl Projection {
         tx.execute("DELETE FROM logs", [])?;
         tx.execute("DELETE FROM purchases", [])?;
         tx.execute("DELETE FROM owned_items", [])?;
+        tx.execute("DELETE FROM weight_records", [])?;
         tx.execute(
             "UPDATE app_state SET initialized=0,total_days=120,daily_task='未设置 - 运行 init 设置每日任务',plan_goal=NULL,plan_tasks_json='[]',position=0,completed_days=0,coins=0,trust=20,mood=60,streak=0,current_vessel='starter_sloop',animation='idle',last_action_date=NULL,last_action_kind=NULL WHERE id=1",
             [],
@@ -256,6 +272,16 @@ impl Projection {
                         params![event.id.to_string(), date.to_string(), text],
                     )?;
                 }
+                EventKind::WeightRecorded {
+                    date,
+                    weight_kg,
+                    note,
+                } => {
+                    tx.execute(
+                        "INSERT OR REPLACE INTO weight_records (event_id,date,weight_kg,note) VALUES (?,?,?,?)",
+                        params![event.id.to_string(), date.to_string(), weight_kg, note],
+                    )?;
+                }
             }
         }
         tx.commit()?;
@@ -293,6 +319,8 @@ impl Projection {
                 last_action_date,
                 last_action_kind: row.get(14)?,
                 latest_log: None,
+                latest_weight: None,
+                recent_weights: Vec::new(),
             })
         })?;
 
@@ -306,10 +334,14 @@ impl Projection {
             .ok();
         let owned_items = self.query_owned_items(None)?;
         let owned_vessels = self.query_owned_items(Some("vessel"))?;
+        let recent_weights = self.query_recent_weights(5)?;
+        let latest_weight = recent_weights.first().cloned();
         Ok(Dashboard {
             latest_log,
             owned_items,
             owned_vessels,
+            latest_weight,
+            recent_weights,
             ..row
         })
     }
@@ -332,6 +364,31 @@ impl Projection {
             for row in rows {
                 out.push(row?);
             }
+        }
+        Ok(out)
+    }
+
+    fn query_recent_weights(&self, limit: usize) -> Result<Vec<WeightRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT date,weight_kg,note FROM weight_records ORDER BY date DESC, event_id DESC LIMIT ?",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            let date = row.get::<_, String>(0)?;
+            Ok(WeightRecord {
+                date: NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(err),
+                    )
+                })?,
+                weight_kg: row.get(1)?,
+                note: row.get(2)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
         }
         Ok(out)
     }

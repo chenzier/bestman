@@ -334,6 +334,52 @@ fn captain_chat_event_is_persisted_as_latest_log_and_replays() {
 }
 
 #[test]
+fn weight_record_event_is_persisted_and_replays() {
+    let config = BestmanConfig::default();
+    let dir = tempdir().unwrap();
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.store
+        .append(
+            rules::weight_recorded_event(
+                NaiveDate::from_ymd_opt(2026, 6, 23).unwrap(),
+                101.2,
+                Some("morning".to_string()),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    app.store
+        .append(
+            rules::weight_recorded_event(
+                NaiveDate::from_ymd_opt(2026, 6, 24).unwrap(),
+                100.6,
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let before = app.projection.dashboard().unwrap();
+    assert_eq!(before.latest_weight.as_ref().unwrap().weight_kg, 100.6);
+    assert_eq!(before.recent_weights.len(), 2);
+    assert_eq!(before.recent_weights[1].note.as_deref(), Some("morning"));
+
+    std::fs::remove_file(&app.paths.db).unwrap();
+    let events = app.store.read_all().unwrap();
+    let mut rebuilt = Projection::open(&app.paths.db).unwrap();
+    rebuilt.rebuild(events).unwrap();
+    assert_eq!(rebuilt.dashboard().unwrap(), before);
+}
+
+#[test]
 fn manifest_rejects_path_traversal() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("vessel.json");

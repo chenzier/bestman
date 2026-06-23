@@ -158,6 +158,64 @@ fn cli_talk_generates_captain_reply_without_state_changes() {
 }
 
 #[test]
+fn cli_weigh_records_replayable_weight_progress() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "weigh",
+            "101.2",
+            "--note",
+            "morning",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("weight recorded: 101.2kg"))
+        .stdout(predicate::str::contains("Weight Progress"))
+        .stdout(predicate::str::contains("latest: 101.2kg"))
+        .stdout(predicate::str::contains("first record"));
+
+    let events = std::fs::read_to_string(home.join("events.jsonl")).unwrap();
+    assert!(events.contains("\"type\":\"weight_recorded\""));
+    assert!(events.contains("\"weight_kg\":101.2"));
+
+    std::fs::remove_file(home.join("bestman.db")).unwrap();
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "rebuild"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "progress"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("latest: 101.2kg"))
+        .stdout(predicate::str::contains("- "))
+        .stdout(predicate::str::contains("morning"));
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "status", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"latest_weight\""))
+        .stdout(predicate::str::contains("\"weight_kg\": 101.2"))
+        .stdout(predicate::str::contains("\"note\": \"morning\""));
+}
+
+#[test]
 fn installed_binary_name_works_for_v1_entrypoint() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");
