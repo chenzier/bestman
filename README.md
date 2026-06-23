@@ -57,6 +57,8 @@ q / Esc / Ctrl-C
 | `bestman --home <dir> done --llm` | 尝试真实 LLM 航海日志，失败时保留模板日志 |
 | `bestman --home <dir> skip` | 记录休息/跳过 |
 | `bestman --home <dir> log` | 查看最新航海日志 |
+| `bestman --home <dir> recap` | 生成本地长期回顾并写入日志 |
+| `bestman --home <dir> recap --llm` | 尝试 LLM 长期回顾，失败时本地 fallback |
 | `bestman --home <dir> plan create --goal <goal> --tasks "A,B"` | 创建本地轻量训练计划 |
 | `bestman --home <dir> plan show` | 查看当前计划和今日任务 |
 | `bestman --home <dir> plan set-today "<task>"` | 手动调整今日任务 |
@@ -207,6 +209,6 @@ cargo test
 
 ## 后续重点
 
-1. v3 远期叙事扩展：里程碑史诗、长期回顾、可选船员/角色。
+1. v3.x 叙事扩展：里程碑史诗、可选船员/角色。
 2. `bestman config show` 和安全的高频配置命令。
 3. 发布包和升级说明。

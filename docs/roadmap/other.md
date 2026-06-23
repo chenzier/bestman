@@ -9,13 +9,14 @@
 已落地：
 
 - 航海日志生成。
+- `recap` 长期回顾。
 - provider/model/prompt version 配置。
 - template fallback。
 - LLM 失败不阻断打卡。
 
 后续接入顺序：
 
-1. 每周/月度温柔回顾。
+1. 每周/月度自动回顾。
 2. 训练计划建议。
 3. 船只描述或资产 prompt。
 
@@ -61,7 +62,7 @@ assets/vessels/<id>/vessel.json
 
 ## 里程碑史诗
 
-可以作为 v3 叙事增强：
+`recap` 已作为 v3.0 叙事基础落地。里程碑史诗仍作为 v3.x 增强：
 
 - 到达里程碑时触发。
 - 注入真实数据：打卡天数、最长 streak、体重变化、已拥有船只。

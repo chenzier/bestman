@@ -1,7 +1,7 @@
 # bestman 技术路线
 
 > 最后更新：2026-06-23  
-> 当前主线：Rust-first / v3 narrative expansion next
+> 当前主线：Rust-first / v3.x backlog after recap
 
 bestman 当前主入口是仓库根目录的 Rust 实现 `bestman`。旧 Python 版保留为 legacy/prototype 参考，不再作为新功能主线。
 
@@ -20,7 +20,8 @@ bestman 当前主入口是仓库根目录的 Rust 实现 `bestman`。旧 Python 
 
 当前短期目标：
 
-1. v3 远期叙事扩展：里程碑史诗、长期回顾、可选船员/角色。
-2. LLM 继续只生成叙事，不改状态。
-3. 事件源 + SQLite 投影保持为核心数据架构。
-4. 地图动态、主题市场和社区全部后置。
+1. v3.0 长期回顾 `recap` 已落地。
+2. 下一步是 v3.x：里程碑史诗、可选船员/角色。
+3. LLM 继续只生成叙事，不改状态。
+4. 事件源 + SQLite 投影保持为核心数据架构。
+5. 地图动态、主题市场和社区全部后置。

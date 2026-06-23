@@ -232,6 +232,12 @@ impl Projection {
                         params![text, target_event_id.to_string()],
                     )?;
                 }
+                EventKind::RecapGenerated { date, text, .. } => {
+                    tx.execute(
+                        "INSERT OR REPLACE INTO logs (event_id,date,text,source) VALUES (?,?,?,'recap')",
+                        params![event.id.to_string(), date.to_string(), text],
+                    )?;
+                }
             }
         }
         tx.commit()?;

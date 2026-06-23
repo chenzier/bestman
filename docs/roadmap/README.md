@@ -1,7 +1,7 @@
 # bestman 技术路线 · 总览
 
 > 最后更新：2026-06-23  
-> 当前阶段：Rust v2.0 训练计划与真实 LLM 叙事已收口，下一主线是 v3.0 远期叙事扩展
+> 当前阶段：Rust v3.0 长期回顾已收口，下一主线是 v3.x 叙事 backlog
 
 ## 产品定位
 
@@ -63,6 +63,7 @@ Rust CLI/TUI
 | `shop list` / `shop buy` / `vessel list` / `vessel set` | 已落地 |
 | 本地轻量训练计划 | 已落地 |
 | OpenAI-compatible LLM 航海日志接口 | 已落地，有 template fallback |
+| `recap` 长期回顾 | 已落地，有 LLM/template fallback |
 | Rust 测试 | 已落地 |
 
 ## 版本阶段
@@ -154,14 +155,21 @@ Rust CLI/TUI
 - 保存 provider/model/prompt version。
 - 不允许 LLM 改状态：position/coins/mood/trust 仍由 rules 决定。
 
-### v3.0 — 远期叙事扩展
+### v3.0 — 长期回顾叙事扩展（已完成）
 
-目标：在宠物船和多船收集都稳定后，再加入更复杂的世界观。
+目标：在宠物船、多船收集和 LLM 日志稳定后，先加入不影响规则状态的长期叙事。
 
-- 船员/角色作为叙事扩展，而不是核心养成
-- 饮食、体重、伤病建议作为可选模块
-- 地图动态效果、创意工坊、社区资产市场
-- 里程碑史诗和长期回顾
+- `recap` 根据真实数据生成长期回顾。
+- recap 写入事件，可通过 SQLite projection 重建。
+- recap 支持 `--llm`，失败时 template fallback。
+- LLM 继续只写叙事，不改金币、位置、心情、信任或拥有状态。
+
+### v3.x — 后续叙事 backlog
+
+- 船员/角色作为叙事扩展，而不是核心养成。
+- 饮食、体重、伤病建议作为可选模块。
+- 地图动态效果、创意工坊、社区资产市场。
+- 里程碑史诗和长期回顾增强。
 
 ## 关键设计决策
 

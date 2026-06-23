@@ -236,6 +236,23 @@ pub fn narrative_generated_event(
     })
 }
 
+pub fn recap_generated_event(
+    date: NaiveDate,
+    text: String,
+    model: String,
+    prompt_version: String,
+) -> Result<StoredEvent> {
+    if text.trim().is_empty() {
+        bail!("recap text cannot be empty");
+    }
+    Ok(StoredEvent::new(EventKind::RecapGenerated {
+        date,
+        text,
+        model,
+        prompt_version,
+    }))
+}
+
 fn is_rest_day(config: &BestmanConfig, date: NaiveDate) -> bool {
     let weekday = date.weekday().to_string().to_lowercase();
     let short = &weekday[..3];

@@ -301,6 +301,39 @@ fn cli_done_llm_falls_back_when_llm_is_unavailable() {
 }
 
 #[test]
+fn cli_recap_generates_long_term_log_with_fallback() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "done", "--dice", "1"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "recap", "--llm"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Recap:"))
+        .stderr(predicate::str::contains("LLM recap unavailable"));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "log"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Recap:"));
+}
+
+#[test]
 fn cli_preview_writes_png() {
     let dir = tempdir().unwrap();
     let output = dir.path().join("ship.png");

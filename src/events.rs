@@ -78,6 +78,12 @@ pub enum EventKind {
         model: String,
         prompt_version: String,
     },
+    RecapGenerated {
+        date: NaiveDate,
+        text: String,
+        model: String,
+        prompt_version: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
