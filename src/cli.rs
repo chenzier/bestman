@@ -85,6 +85,8 @@ enum Command {
     Recap {
         #[arg(long)]
         llm: bool,
+        #[arg(long)]
+        auto: bool,
         #[arg(long, value_enum, default_value_t = RecapPeriodArg::All)]
         period: RecapPeriodArg,
     },
@@ -411,11 +413,26 @@ pub fn run() -> Result<()> {
             println!("Health Advice:");
             println!("{text}");
         }
-        Command::Recap { llm, period } => {
+        Command::Recap { llm, auto, period } => {
             let mut app = BestmanApp::open(paths)?;
             app.rebuild_projection()?;
             let dash = app.projection.dashboard()?;
-            let period: RecapPeriod = period.into();
+            let events = if auto {
+                app.store.read_all()?
+            } else {
+                Vec::new()
+            };
+            let period: RecapPeriod = if auto {
+                match auto_recap_period(&dash, &events, today(), period.into()) {
+                    Some(period) => period,
+                    None => {
+                        println!("no automatic recap due today");
+                        return Ok(());
+                    }
+                }
+            } else {
+                period.into()
+            };
             let prompt = recap_prompt(&dash, period);
             let (text, model, prompt_version) = if llm || app.config.llm.enabled {
                 match generate_narrative(&app.config.llm, &prompt) {
@@ -1048,6 +1065,54 @@ fn recap_period_label(period: RecapPeriod) -> &'static str {
         RecapPeriod::Month => "month",
         RecapPeriod::All => "all-time",
     }
+}
+
+fn auto_recap_period(
+    dash: &crate::projection::Dashboard,
+    events: &[crate::events::StoredEvent],
+    date: NaiveDate,
+    requested: RecapPeriod,
+) -> Option<RecapPeriod> {
+    let due = if requested != RecapPeriod::All {
+        vec![requested]
+    } else {
+        let mut periods = Vec::new();
+        if dash.completed_days > 0 && dash.completed_days % 30 == 0 {
+            periods.push(RecapPeriod::Month);
+        }
+        if dash.completed_days > 0 && dash.completed_days % 7 == 0 {
+            periods.push(RecapPeriod::Week);
+        }
+        periods
+    };
+    due.into_iter().find(|period| {
+        is_recap_due(dash.completed_days, *period) && !recap_exists(events, date, *period)
+    })
+}
+
+fn is_recap_due(completed_days: u32, period: RecapPeriod) -> bool {
+    match period {
+        RecapPeriod::Week => completed_days > 0 && completed_days % 7 == 0,
+        RecapPeriod::Month => completed_days > 0 && completed_days % 30 == 0,
+        RecapPeriod::All => false,
+    }
+}
+
+fn recap_exists(
+    events: &[crate::events::StoredEvent],
+    date: NaiveDate,
+    period: RecapPeriod,
+) -> bool {
+    events.iter().any(|event| {
+        matches!(
+            event.kind,
+            crate::events::EventKind::RecapGenerated {
+                date: event_date,
+                period: event_period,
+                ..
+            } if event_date == date && event_period == period
+        )
+    })
 }
 
 fn recap_prompt_version(period: RecapPeriod) -> &'static str {

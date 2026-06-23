@@ -65,7 +65,7 @@ Rust CLI/TUI
 | `shop list` / `shop buy` / `vessel list` / `vessel set` | 已落地 |
 | 本地轻量训练计划 | 已落地 |
 | OpenAI-compatible LLM 航海日志接口 | 已落地，有 template fallback |
-| `recap` 长期/周/月回顾 | 已落地，有 LLM/template fallback |
+| `recap` 长期/周/月/自动回顾 | 已落地，有 LLM/template fallback |
 | 里程碑史诗 | 已落地，到达里程碑时自动写入日志 |
 | `talk` 船长聊天 | 已落地，只生成回复不改状态 |
 | `weigh` / `progress` 体重记录 | 已落地，事件源 + SQLite projection |
@@ -207,12 +207,18 @@ Rust CLI/TUI
 - 建议写入事件和日志 projection，可重建。
 - 不做诊断，不自动改计划、金币、位置、心情、信任或体重。
 
+### v3.6 — 自动回顾检查（已完成）
+
+- `recap --auto` 按完成天数在 7/30 天节点生成周/月回顾。
+- 同一天同周期已生成过回顾时跳过，避免重复日志。
+- 仍然写 `RecapGenerated` 事件，可通过 SQLite projection 重建。
+- 这是显式 CLI 检查，不引入后台调度服务。
+
 ### v3.x — 后续叙事 backlog
 
 - 船员/角色作为叙事扩展，而不是核心养成。
 - 饮食作为可选模块。
 - 地图动态效果、创意工坊、社区资产市场。
-- 更细粒度的自动回顾调度。
 
 ## 关键设计决策
 

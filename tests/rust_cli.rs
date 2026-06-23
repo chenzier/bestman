@@ -1,4 +1,9 @@
 use assert_cmd::Command;
+use bestman_rs::app::{AppPaths, BestmanApp};
+use bestman_rs::config::BestmanConfig;
+use bestman_rs::events::CompletionLevel;
+use bestman_rs::rules;
+use chrono::NaiveDate;
 use predicates::prelude::*;
 use tempfile::tempdir;
 
@@ -727,6 +732,58 @@ fn cli_recap_generates_long_term_log_with_fallback() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Recap (week)"));
+}
+
+#[test]
+fn cli_recap_auto_generates_due_weekly_recap_once() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    let paths = AppPaths::from_home(home.clone());
+    let config = BestmanConfig::default();
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
+        ))
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    for day in 2..=8 {
+        let dash = app.projection.dashboard().unwrap();
+        app.store
+            .append(
+                rules::check_in_event(
+                    &config,
+                    &dash,
+                    NaiveDate::from_ymd_opt(2026, 6, day).unwrap(),
+                    CompletionLevel::Normal,
+                    "".to_string(),
+                    Some(1),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        app.rebuild_projection().unwrap();
+    }
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "recap", "--auto"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Recap (week)"));
+
+    let events = std::fs::read_to_string(home.join("events.jsonl")).unwrap();
+    assert!(events.contains("\"type\":\"recap_generated\""));
+    assert!(events.contains("\"period\":\"week\""));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "recap", "--auto"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no automatic recap due today"));
 }
 
 #[test]

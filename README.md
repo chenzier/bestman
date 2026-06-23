@@ -65,6 +65,7 @@ q / Esc / Ctrl-C
 | `bestman --home <dir> advice "膝盖有点不舒服"` | 生成低风险健康建议，不做诊断不改状态 |
 | `bestman --home <dir> recap` | 生成本地长期回顾并写入日志 |
 | `bestman --home <dir> recap --period week` | 生成周/月/all-time 回顾 |
+| `bestman --home <dir> recap --auto` | 到达 7/30 天节点时自动选择周/月回顾，重复运行会跳过 |
 | `bestman --home <dir> recap --llm` | 尝试 LLM 长期回顾，失败时本地 fallback |
 | `bestman --home <dir> plan create --goal <goal> --tasks "A,B"` | 创建本地轻量训练计划 |
 | `bestman --home <dir> plan show` | 查看当前计划和今日任务 |
@@ -214,6 +215,6 @@ bestman --home /tmp/bestman-demo vessel validate
 
 ## 后续重点
 
-1. v3.x 叙事扩展：可选船员/角色、自动回顾调度。
+1. v3.x 叙事扩展：可选船员/角色。
 2. 高频安全配置命令。
 3. 发布包和升级说明。
