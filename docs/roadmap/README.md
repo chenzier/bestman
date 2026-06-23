@@ -66,6 +66,7 @@ Rust CLI/TUI
 | 本地轻量训练计划 | 已落地 |
 | OpenAI-compatible LLM 航海日志接口 | 已落地，有 template fallback |
 | `recap` 长期回顾 | 已落地，有 LLM/template fallback |
+| 里程碑史诗 | 已落地，到达里程碑时自动写入日志 |
 | `config show` / `rebuild` / `vessel validate` | 已落地 |
 | Rust 测试 | 已落地 |
 | Python prototype 移除 | 已落地 |
@@ -168,12 +169,19 @@ Rust CLI/TUI
 - recap 支持 `--llm`，失败时 template fallback。
 - LLM 继续只写叙事，不改金币、位置、心情、信任或拥有状态。
 
+### v3.1 — 里程碑史诗（已完成）
+
+- 到达里程碑时自动生成短史诗日志。
+- 史诗写入事件，可通过 SQLite projection 重建。
+- 支持 LLM/template fallback。
+- 继续只写叙事，不改金币、位置、心情、信任或拥有状态。
+
 ### v3.x — 后续叙事 backlog
 
 - 船员/角色作为叙事扩展，而不是核心养成。
 - 饮食、体重、伤病建议作为可选模块。
 - 地图动态效果、创意工坊、社区资产市场。
-- 里程碑史诗和长期回顾增强。
+- 长期回顾增强。
 
 ## 关键设计决策
 

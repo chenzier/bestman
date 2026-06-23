@@ -21,7 +21,7 @@ bestman 当前主入口是仓库根目录的 Rust 实现 `bestman`。早期 Pyth
 当前短期目标：
 
 1. v3.0 长期回顾 `recap` 已落地。
-2. 下一步是 v3.x：里程碑史诗、可选船员/角色。
+2. v3.1 里程碑史诗已落地；下一步是 v3.x 可选船员/角色。
 3. LLM 继续只生成叙事，不改状态。
 4. 事件源 + SQLite 投影保持为核心数据架构。
 5. `config show`、`rebuild` 和 `vessel validate` 已作为发布/排障入口落地。

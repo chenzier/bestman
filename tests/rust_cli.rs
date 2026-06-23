@@ -65,6 +65,52 @@ fn cli_init_done_status_and_log_work() {
 }
 
 #[test]
+fn cli_done_generates_milestone_epic_when_crossing_milestone() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "init",
+            "--daily-task",
+            "俯卧撑 3x10",
+            "--total-days",
+            "4",
+        ])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "done",
+            "--level",
+            "normal",
+            "--dice",
+            "1",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("milestones: 第一片远海"))
+        .stdout(predicate::str::contains("Milestone Epic: 第一片远海"));
+
+    let events = std::fs::read_to_string(home.join("events.jsonl")).unwrap();
+    assert!(events.contains("\"type\":\"milestone_epic_generated\""));
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "log"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Milestone Epic: 第一片远海"));
+}
+
+#[test]
 fn installed_binary_name_works_for_v1_entrypoint() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");

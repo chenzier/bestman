@@ -244,6 +244,12 @@ impl Projection {
                         params![event.id.to_string(), date.to_string(), text],
                     )?;
                 }
+                EventKind::MilestoneEpicGenerated { date, text, .. } => {
+                    tx.execute(
+                        "INSERT OR REPLACE INTO logs (event_id,date,text,source) VALUES (?,?,?,'milestone_epic')",
+                        params![event.id.to_string(), date.to_string(), text],
+                    )?;
+                }
             }
         }
         tx.commit()?;

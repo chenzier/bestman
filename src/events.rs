@@ -89,6 +89,13 @@ pub enum EventKind {
         model: String,
         prompt_version: String,
     },
+    MilestoneEpicGenerated {
+        date: NaiveDate,
+        milestone: String,
+        text: String,
+        model: String,
+        prompt_version: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

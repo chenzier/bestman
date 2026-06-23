@@ -287,6 +287,24 @@ pub fn run() -> Result<()> {
                     }
                 }
             }
+            if !feedback.milestones.is_empty() {
+                let (text, model, prompt_version) = milestone_epic_text(
+                    &app.config.llm,
+                    &dash,
+                    &feedback,
+                    &feedback.milestones,
+                    llm || app.config.llm.enabled,
+                );
+                for milestone in &feedback.milestones {
+                    app.store.append(rules::milestone_epic_generated_event(
+                        today(),
+                        milestone.clone(),
+                        text.clone(),
+                        model.clone(),
+                        prompt_version.clone(),
+                    )?)?;
+                }
+            }
             app.rebuild_projection()?;
             let dash = app.projection.dashboard()?;
             print_done_feedback(&current_daily_task, feedback, &dash);
@@ -863,6 +881,70 @@ fn local_recap(dash: &crate::projection::Dashboard) -> String {
         dash.total_days,
         dash.current_vessel,
         dash.owned_vessels.len()
+    )
+}
+
+fn milestone_epic_text(
+    llm_config: &crate::config::LlmConfig,
+    dash: &crate::projection::Dashboard,
+    feedback: &DoneFeedback,
+    milestones: &[String],
+    use_llm: bool,
+) -> (String, String, String) {
+    let prompt = milestone_epic_prompt(dash, feedback, milestones);
+    if use_llm {
+        match generate_narrative(llm_config, &prompt) {
+            Ok(generated) => {
+                return (generated.text, generated.model, generated.prompt_version);
+            }
+            Err(err) => {
+                eprintln!("LLM milestone epic unavailable; generated local epic: {err}");
+            }
+        }
+    }
+    (
+        local_milestone_epic(dash, feedback, milestones),
+        "template".to_string(),
+        "bestman-v3-milestone-template".to_string(),
+    )
+}
+
+fn milestone_epic_prompt(
+    dash: &crate::projection::Dashboard,
+    feedback: &DoneFeedback,
+    milestones: &[String],
+) -> String {
+    let coins_total = dash.coins
+        + feedback
+            .coins_breakdown
+            .iter()
+            .map(|award| award.amount)
+            .sum::<i32>();
+    format!(
+        "请写一段 3 句以内的 bestman 宠物船里程碑史诗。事实：抵达里程碑 {}，当前位置 {}/{}，累计完成 {} 天，最长/当前连续 {} 天，当前船 {}，拥有船只 {} 艘，金币 {}。只写叙事，不修改任何状态。",
+        milestones.join("、"),
+        feedback.new_position,
+        dash.total_days,
+        dash.completed_days.saturating_add(1),
+        dash.streak.saturating_add(1),
+        dash.current_vessel,
+        dash.owned_vessels.len(),
+        coins_total
+    )
+}
+
+fn local_milestone_epic(
+    dash: &crate::projection::Dashboard,
+    feedback: &DoneFeedback,
+    milestones: &[String],
+) -> String {
+    format!(
+        "Milestone Epic: {} 被写入航海志。{} 已航行到 {}/{}，完成 {} 天训练；这不是新的负担，只是一枚证明你已经走到这里的航标。",
+        milestones.join("、"),
+        dash.current_vessel,
+        feedback.new_position,
+        dash.total_days,
+        dash.completed_days.saturating_add(1)
     )
 }
 
