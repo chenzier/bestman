@@ -10,9 +10,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::app::BestmanApp;
+use crate::events::VesselAnimation;
 use crate::map::Route;
 use crate::projection::{Dashboard, animation_name};
-use crate::terminal_image;
 use crate::vessels::catalog::VesselCatalog;
 use crate::vessels::render::FrameCache;
 
@@ -43,55 +43,117 @@ pub fn render_snapshot(
         let root = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(9),
-                Constraint::Length(16),
+                Constraint::Length(3),
+                Constraint::Length(14),
+                Constraint::Length(4),
                 Constraint::Min(5),
             ])
             .split(frame.area());
-        let top = Layout::default()
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(vec![
+                    Span::styled(
+                        "Bestman Companion",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(
+                        state_text(dash.animation),
+                        Style::default().fg(animation_color(dash.animation)),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("Today ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        dash.daily_task.clone(),
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+            ])
+            .block(Block::default().borders(Borders::BOTTOM)),
+            root[0],
+        );
+
+        let main = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(42), Constraint::Min(20)])
-            .split(root[0]);
+            .constraints([Constraint::Percentage(64), Constraint::Percentage(36)])
+            .split(root[1]);
 
         let companion = Paragraph::new(vec![
+            Line::raw(""),
             Line::from(vec![
-                Span::styled("vessel ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Vessel ", Style::default().fg(Color::DarkGray)),
                 Span::styled(&dash.current_vessel, Style::default().fg(Color::Cyan)),
             ]),
-            Line::from(format!("state  {:?}", dash.animation)),
-            Line::from(format!("image  {}", companion_frame.display())),
-            Line::from(format!("proto  {:?}", terminal_image::detect_current())),
+            Line::from(vec![
+                Span::styled("State  ", Style::default().fg(Color::DarkGray)),
+                Span::raw(state_text(dash.animation)),
+            ]),
+            Line::from(vec![
+                Span::styled("Frame  ", Style::default().fg(Color::DarkGray)),
+                Span::raw(
+                    companion_frame
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("ready"),
+                ),
+            ]),
+            Line::raw(""),
+            Line::styled(
+                "The companion vessel is the focus.",
+                Style::default().fg(Color::Cyan),
+            ),
         ])
         .block(
             Block::default()
-                .title(" Companion Vessel ")
+                .title(" Companion ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Cyan)),
         );
-        frame.render_widget(companion, top[0]);
+        frame.render_widget(companion, main[0]);
 
         let stats = Paragraph::new(vec![
             Line::from(vec![
                 Span::styled("DAY ", Style::default().add_modifier(Modifier::BOLD)),
                 Span::raw(format!("{} / {}", dash.position, dash.total_days)),
             ]),
-            Line::from(format!("coins  {}", dash.coins)),
-            Line::from(format!("trust  {}    mood {}", dash.trust, dash.mood)),
-            Line::from(format!("streak {}", dash.streak)),
+            Line::from(format!("Coins  {}    Streak {}", dash.coins, dash.streak)),
+            Line::from(format!("Mood   {}    Trust {}", dash.mood, dash.trust)),
+            Line::raw(""),
+            Line::raw(today_status(dash)),
         ])
-        .block(Block::default().title(" Today ").borders(Borders::ALL));
-        frame.render_widget(stats, top[1]);
+        .block(
+            Block::default()
+                .title(" Today ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow)),
+        );
+        frame.render_widget(stats, main[1]);
 
-        let map = Route::generate(dash.total_days).render_ascii(dash.position);
         frame.render_widget(
-            Paragraph::new(map).block(Block::default().title(" Route ").borders(Borders::ALL)),
-            root[1],
+            Paragraph::new(vec![Line::from(vec![
+                Span::styled("Progress ", Style::default().fg(Color::DarkGray)),
+                Span::raw(format!("{:.0}%  ", progress_ratio(dash) * 100.0)),
+                Span::styled(compact_route(dash), Style::default().fg(Color::Yellow)),
+            ])])
+            .block(
+                Block::default()
+                    .title(" Route progress ")
+                    .borders(Borders::ALL),
+            ),
+            root[2],
         );
 
         let log = dash.latest_log.as_deref().unwrap_or("No logs yet.");
         frame.render_widget(
-            Paragraph::new(log).block(Block::default().title(" Log ").borders(Borders::ALL)),
-            root[2],
+            Paragraph::new(log).block(
+                Block::default()
+                    .title(" Captain's Log ")
+                    .borders(Borders::ALL),
+            ),
+            root[3],
         );
     })?;
     Ok(terminal.backend().to_string())
@@ -123,24 +185,43 @@ pub fn export_dashboard_png_with_frame(
     let companion = image::open(&companion_frame)?.to_rgba8();
     let mut img = RgbaImage::from_pixel(900, 560, Rgba([13, 38, 48, 255]));
 
-    fill_rect(&mut img, 24, 24, 852, 178, Rgba([18, 58, 70, 255]));
-    fill_rect(&mut img, 24, 224, 852, 260, Rgba([14, 72, 88, 255]));
+    fill_rect(&mut img, 24, 24, 852, 72, Rgba([18, 58, 70, 255]));
+    fill_rect(&mut img, 24, 116, 540, 230, Rgba([16, 68, 82, 255]));
+    fill_rect(&mut img, 588, 116, 288, 230, Rgba([25, 76, 68, 255]));
+    fill_rect(&mut img, 24, 368, 852, 112, Rgba([14, 72, 88, 255]));
     fill_rect(&mut img, 24, 504, 852, 34, Rgba([18, 58, 70, 255]));
-    blit(&mut img, &companion, 52, 48);
+    blit(&mut img, &companion, 62, 154);
 
     draw_text_blocks(
         &mut img,
-        220,
         48,
+        42,
         &[
             "BESTMAN COMPANION",
+            &format!("TODAY {}", ascii_task_label(&dash.daily_task)),
+        ],
+        Rgba([232, 246, 236, 255]),
+    );
+    draw_text_blocks(
+        &mut img,
+        260,
+        148,
+        &[
             &format!("VESSEL {}", dash.current_vessel),
-            &format!("STATE {:?}", dash.animation),
+            &format!("STATE {}", state_text(dash.animation).to_ascii_uppercase()),
+            "COMPANION FOCUS",
+        ],
+        Rgba([232, 246, 236, 255]),
+    );
+    draw_text_blocks(
+        &mut img,
+        620,
+        148,
+        &[
             &format!("DAY {} / {}", dash.position, dash.total_days),
-            &format!(
-                "COINS {}  TRUST {}  MOOD {}",
-                dash.coins, dash.trust, dash.mood
-            ),
+            &format!("COINS {}  STREAK {}", dash.coins, dash.streak),
+            &format!("MOOD {}  TRUST {}", dash.mood, dash.trust),
+            &today_status(&dash).to_ascii_uppercase(),
         ],
         Rgba([232, 246, 236, 255]),
     );
@@ -149,12 +230,12 @@ pub fn export_dashboard_png_with_frame(
         &Route::generate(dash.total_days),
         dash.position,
         50,
-        250,
+        390,
     );
     let log_line = if dash.latest_log.is_some() {
-        "LOG READY"
+        "CAPTAIN LOG READY"
     } else {
-        "NO LOGS YET"
+        "CAPTAIN LOG PENDING"
     };
     draw_text_blocks(&mut img, 48, 512, &[log_line], Rgba([210, 228, 220, 255]));
 
@@ -163,6 +244,81 @@ pub fn export_dashboard_png_with_frame(
     }
     img.save(output)?;
     Ok(())
+}
+
+fn state_text(animation: VesselAnimation) -> &'static str {
+    match animation {
+        VesselAnimation::Waiting => "Waiting for today's voyage",
+        VesselAnimation::Sailing => "Sailing after check-in",
+        VesselAnimation::Happy | VesselAnimation::Celebrating | VesselAnimation::Treasure => {
+            "Bright and encouraged"
+        }
+        VesselAnimation::Resting => "Resting at anchor",
+        VesselAnimation::LowEnergy => "Low energy",
+        VesselAnimation::Idle => "At harbor",
+    }
+}
+
+fn animation_color(animation: VesselAnimation) -> Color {
+    match animation {
+        VesselAnimation::Waiting | VesselAnimation::Idle => Color::LightBlue,
+        VesselAnimation::Sailing => Color::Green,
+        VesselAnimation::Resting => Color::Blue,
+        VesselAnimation::LowEnergy => Color::Red,
+        VesselAnimation::Happy | VesselAnimation::Celebrating | VesselAnimation::Treasure => {
+            Color::Yellow
+        }
+    }
+}
+
+fn today_status(dash: &Dashboard) -> &'static str {
+    match dash.last_action_kind.as_deref() {
+        Some("check_in") => "Training is recorded.",
+        Some("rest") => "Planned rest is recorded.",
+        Some("skip") => "Rest is recorded.",
+        _ => "Ready for today's training.",
+    }
+}
+
+fn ascii_task_label(task: &str) -> String {
+    let ascii = task
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace() {
+                ch
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>();
+    if ascii.trim().is_empty() {
+        "DAILY TASK".to_string()
+    } else {
+        ascii
+    }
+}
+
+fn progress_ratio(dash: &Dashboard) -> f64 {
+    let total = dash.total_days.max(1) as f64;
+    (dash.position.min(dash.total_days) as f64 / total).clamp(0.0, 1.0)
+}
+
+fn compact_route(dash: &Dashboard) -> String {
+    let slots = 18usize;
+    let total = dash.total_days.max(1) as usize;
+    let pos = dash.position.min(dash.total_days) as usize;
+    let marker = ((pos * slots) / total).min(slots.saturating_sub(1));
+    let mut out = String::with_capacity(slots);
+    for idx in 0..slots {
+        if idx == marker {
+            out.push('S');
+        } else if idx < marker {
+            out.push('=');
+        } else {
+            out.push('~');
+        }
+    }
+    out
 }
 
 pub fn export_dashboard_frames(app: &BestmanApp, output_dir: &Path) -> Result<Vec<PathBuf>> {

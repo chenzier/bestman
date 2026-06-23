@@ -24,9 +24,11 @@
 | TUI 文本 fallback | 已有 |
 | Kitty inline PNG | 已有 |
 | preview / animation frame export | 已有 |
-| dashboard PNG export | 已有 |
+| dashboard PNG export | 已有，v1.1 已与 TUI 语言统一 |
+| 连续休整 low_energy 反馈 | 已有，不额外惩罚 |
+| 连续打卡宠物反馈 | 已有，7 天触发 happy，不额外发金币 |
 
-## v1 必做
+## v1.1 已完成
 
 ### TUI 主体验
 
@@ -39,6 +41,7 @@
   - 最新日志摘要
 - 退出必须可靠：`q` / `Esc` / `Ctrl-C`。
 - 图片模式失败时自动退回文本船。
+- dashboard 文本/PNG 不再暴露 image path/protocol debug，改用 TUI 一致的产品语言。
 
 ### 状态机
 
@@ -50,6 +53,13 @@
 | resting | 休息日 | 抛锚休息 |
 | low_energy | 连续跳过或低心情 | 更慢、更暗 |
 | treasure | 奖励/里程碑 | 短庆祝 |
+
+v1.1 规则边界：
+
+- 连续休整或低心情可以触发 `low_energy`。
+- `low_energy` 不额外扣金币、信任或心情。
+- 连续 7 天打卡可以触发 `happy` 反馈。
+- 连续打卡反馈不额外发金币，不引入 XP grind。
 
 ### 船只资产
 

@@ -241,6 +241,98 @@ fn rest_day_uses_rest_event_without_skip_penalty() {
 }
 
 #[test]
+fn repeated_skip_switches_to_low_energy_without_extra_penalty() {
+    let config = BestmanConfig::default();
+    let dir = tempdir().unwrap();
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.rebuild_projection().unwrap();
+
+    let first_skip_date = NaiveDate::from_ymd_opt(2026, 6, 23).unwrap();
+    let dash = app.projection.dashboard().unwrap();
+    app.store
+        .append(
+            rules::skip_or_rest_event(&config, &dash, first_skip_date, "tired".to_string())
+                .unwrap(),
+        )
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let after_first = app.projection.dashboard().unwrap();
+    assert_eq!(after_first.animation, VesselAnimation::Resting);
+    assert_eq!(after_first.mood, 58);
+
+    let second_skip_date = NaiveDate::from_ymd_opt(2026, 6, 24).unwrap();
+    app.store
+        .append(
+            rules::skip_or_rest_event(
+                &config,
+                &after_first,
+                second_skip_date,
+                "still tired".to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let after_second = app.projection.dashboard().unwrap();
+    assert_eq!(after_second.animation, VesselAnimation::LowEnergy);
+    assert_eq!(after_second.mood, 56);
+    assert_eq!(after_second.streak, 0);
+    assert!(
+        after_second
+            .latest_log
+            .as_deref()
+            .unwrap()
+            .contains("从轻量开始")
+    );
+}
+
+#[test]
+fn seven_day_streak_changes_companion_feedback_without_extra_coins() {
+    let config = BestmanConfig::default();
+    let dir = tempdir().unwrap();
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.rebuild_projection().unwrap();
+
+    for day in 23..=29 {
+        let date = NaiveDate::from_ymd_opt(2026, 6, day).unwrap();
+        let dash = app.projection.dashboard().unwrap();
+        let event = rules::check_in_event(
+            &config,
+            &dash,
+            date,
+            CompletionLevel::Light,
+            "".to_string(),
+            Some(1),
+        )
+        .unwrap();
+        app.store.append(event).unwrap();
+        app.rebuild_projection().unwrap();
+    }
+
+    let dash = app.projection.dashboard().unwrap();
+    assert_eq!(dash.streak, 7);
+    assert_eq!(dash.coins, 49);
+    assert_eq!(dash.animation, VesselAnimation::Happy);
+    assert!(dash.latest_log.as_deref().unwrap().contains("连续 7 天"));
+}
+
+#[test]
 fn terminal_image_protocol_detection_and_kitty_encoding_work() {
     assert_eq!(
         detect_from_env(Some("xterm-kitty"), None),
@@ -305,8 +397,11 @@ fn dashboard_snapshot_and_png_export_are_valid() {
     app.rebuild_projection().unwrap();
 
     let render = build_dashboard_render(&app).unwrap();
-    assert!(render.text.contains("Companion Vessel"));
-    assert!(render.text.contains("Route"));
+    assert!(render.text.contains("Bestman Companion"));
+    assert!(render.text.contains("Companion"));
+    assert!(render.text.contains("Route progress"));
+    assert!(!render.text.contains("proto"));
+    assert!(!render.text.contains("image  /"));
     assert!(render.companion_frame.exists());
 
     let output = dir.path().join("dashboard.png");

@@ -1,7 +1,7 @@
 # bestman 技术路线 · 总览
 
 > 最后更新：2026-06-23  
-> 当前阶段：Rust v1 主入口已收口，下一主线是 v1.2 多船收集系统
+> 当前阶段：Rust v1.1 宠物船体验已收口，下一主线是 v1.2 多船收集系统
 
 ## 产品定位
 
@@ -86,15 +86,15 @@ Rust CLI/TUI
 - 图片模式失败时回退文本，不影响使用。
 - `reset --yes` 支持开发期清理指定 `--home`。
 
-### v1.1 — 宠物船体验强化
+### v1.1 — 宠物船体验强化（已完成）
 
 目标：先把“当前船像宠物”这件事稳住，为 v1.2 多船收集打底。
 
-- 当前船状态机细化：waiting / sailing / happy / resting / low_energy / treasure。
+- 当前船状态机覆盖 waiting / sailing / happy / resting / low_energy / treasure。
 - 不同状态有明确动画、文案、颜色和 fallback。
-- 休息反馈要温和，不制造羞耻感。
-- 连续打卡只增强陪伴反馈，不做复杂 XP grind。
-- dashboard PNG 与 TUI 视觉语言统一。
+- 连续休整或低心情会触发 `low_energy`，但不额外惩罚。
+- 连续 7 天打卡只增强宠物反馈，不额外发金币，不做复杂 XP grind。
+- dashboard 文本/PNG 与 TUI 视觉语言统一，不再暴露 image path/protocol debug。
 - 不引入多船经济，不引入真实 LLM，不扩地图玩法。
 
 ### v1.2 — 多船收集系统

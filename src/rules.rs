@@ -62,10 +62,13 @@ pub fn check_in_event(
         });
     }
 
+    let next_streak = dashboard.streak.saturating_add(1);
     let animation = if !milestones.is_empty() {
         VesselAnimation::Celebrating
     } else if !treasures.is_empty() {
         VesselAnimation::Treasure
+    } else if next_streak >= 7 && next_streak % 7 == 0 {
+        VesselAnimation::Happy
     } else {
         VesselAnimation::Sailing
     };
@@ -75,12 +78,21 @@ pub fn check_in_event(
         CompletionLevel::Full => (3, 7),
     };
 
-    let template_narrative = format!(
-        "第 {} 天，{}完成。小帆船升起灯，向前航行 {} 格。",
-        new_position,
-        level_name(level),
-        dice_distance
-    );
+    let template_narrative = if matches!(animation, VesselAnimation::Happy) {
+        format!(
+            "第 {} 天，{}完成。连续 {} 天的节奏被稳稳接住，小帆船把灯调亮了一些。",
+            new_position,
+            level_name(level),
+            next_streak
+        )
+    } else {
+        format!(
+            "第 {} 天，{}完成。小帆船升起灯，向前航行 {} 格。",
+            new_position,
+            level_name(level),
+            dice_distance
+        )
+    };
 
     Ok(StoredEvent::new(EventKind::DailyCheckInCompleted {
         date,
@@ -118,13 +130,23 @@ pub fn skip_or_rest_event(
             template_narrative: "今天是计划休息日，小帆船停在安静港湾里补给。".to_string(),
         }))
     } else {
+        let mood_after = dashboard.mood + -2;
+        let low_energy = dashboard.last_action_kind.as_deref() == Some("skip") || mood_after <= 45;
         Ok(StoredEvent::new(EventKind::DaySkipped {
             date,
             reason,
             mood_delta: -2,
-            animation: VesselAnimation::Resting,
-            template_narrative: "今天使用一次休整，小帆船收起帆，没有责备，只是在港口等你。"
-                .to_string(),
+            animation: if low_energy {
+                VesselAnimation::LowEnergy
+            } else {
+                VesselAnimation::Resting
+            },
+            template_narrative: if low_energy {
+                "今天继续放慢节奏，小帆船把灯压低，没有催促，只提醒你明天可以从轻量开始。"
+                    .to_string()
+            } else {
+                "今天使用一次休整，小帆船收起帆，没有责备，只是在港口等你。".to_string()
+            },
         }))
     }
 }
