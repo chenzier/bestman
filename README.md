@@ -100,19 +100,23 @@ bestman --home /tmp/bestman-demo status
 内置默认船：
 
 ```text
+assets/catalog.json
 assets/vessels/starter_sloop/
   vessel.json
   spritesheet.png
 ```
 
-每艘船由 manifest + spritesheet 组成。manifest 描述船只 ID、显示名、帧尺寸和动画序列。用户自定义船只放在：
+`vessel.json` 只描述渲染资产：船只 ID、显示名、帧尺寸和动画序列。商店、价格、稀有度和解锁条件由 `assets/catalog.json` 管理。
+
+用户自定义船只属于 experimental，必须在 `<home>/catalog.json` 注册：
 
 ```text
+<home>/catalog.json
 <home>/vessels/<vessel-id>/vessel.json
 <home>/vessels/<vessel-id>/spritesheet.png
 ```
 
-当前会校验 manifest，并拒绝 spritesheet 路径逃逸。
+当前会校验 manifest，并拒绝 spritesheet 路径逃逸。v1.2 开始，未注册 catalog 的船不会进入商店、列表或装备流程。
 
 ## 架构
 
@@ -175,7 +179,7 @@ cargo test
 
 ## 后续重点
 
-1. 完善船只 ownership/equipped/shop 解锁模型。
-2. 优化 TUI 图片定位和首屏引导。
-3. 接入真实 LLM 日志生成，并保留 template fallback。
-4. 增加发布包和升级说明。
+1. v1.2 多船收集：catalog、ownership/equipped、购买/装备事件。
+2. 基于旧版预设重做 5 艘内置宠物船：小帆船、龙头战船、幽灵灯船、云剑小舟、应龙灵舟。
+3. `shop list` / `vessel list` 展示 owned/locked/price/rarity，TUI 首屏只显示当前船。
+4. v1.2 完成后再接真实 LLM 日志生成，并保留 template fallback。

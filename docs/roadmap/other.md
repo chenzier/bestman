@@ -8,7 +8,7 @@
 
 真实接入顺序：
 
-1. 航海日志生成。
+1. v1.2 多船收集闭环完成后，再接航海日志生成。
 2. 每周/月度温柔回顾。
 3. 训练计划建议。
 4. 船只描述或资产 prompt。
@@ -22,7 +22,23 @@
 
 ## 工坊/自定义资产
 
-短期只支持本地 `<home>/vessels/<id>/vessel.json`。
+v1.2 开始，所有船只必须通过 catalog 注册。
+
+内置资产：
+
+```text
+assets/catalog.json
+assets/vessels/<id>/vessel.json
+```
+
+用户自定义资产保留为 experimental：
+
+```text
+<home>/catalog.json
+<home>/vessels/<id>/vessel.json
+```
+
+未注册 catalog 的 `vessel.json` 不进入商店、列表或装备流程。
 
 后续可做：
 
@@ -65,9 +81,12 @@ v1 已有：
 
 当前 Rust 版主要依赖 `config.toml` 和 `--home`。
 
+已落地：
+
+- `bestman reset --yes`：只清空当前 `--home`，必须显式确认。
+
 需要补：
 
-- `bestman reset`：只清空当前 `--home`，必须有确认机制。
 - `bestman config show`：只读展示安全配置。
 - 高频配置命令：例如默认任务、总天数、休息日。
 

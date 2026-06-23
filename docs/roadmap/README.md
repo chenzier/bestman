@@ -1,7 +1,7 @@
 # bestman 技术路线 · 总览
 
 > 最后更新：2026-06-23  
-> 当前阶段：Rust v0.1 prototype，准备进入 v1 可用主线
+> 当前阶段：Rust v1 主入口已收口，下一主线是 v1.2 多船收集系统
 
 ## 产品定位
 
@@ -73,42 +73,72 @@ Rust CLI/TUI
 - 基础商店/换船
 - 自动化测试覆盖核心路径
 
-### v1.0 — 日常可用主入口
+### v1.0 — 日常可用主入口（已完成）
 
 目标：用户能每天用它打卡，不需要理解内部实现。
 
-- 发布可执行二进制，减少 `cargo run` 依赖
-- `bestman` 命令指向 Rust 版
-- TUI 首屏聚焦宠物船和今日任务
-- 同日重复打卡策略明确
-- 打卡后即时反馈：进度、金币、心情、日志
-- 图片模式稳定定位，纯文本 fallback 保持完整可用
-- 错误提示产品化，不暴露内部路径和 debug 信息
-- README / roadmap / legacy 文档持续对齐
+- `bestman` 命令指向 Rust 版，`cargo run` 默认运行 `bestman`。
+- README / 命令说明改成 Rust 版。
+- Python 版标为 legacy/prototype，不再并行扩新功能。
+- TUI 首屏聚焦当前宠物船和今日任务。
+- 同日重复打卡/休息有明确策略。
+- 打卡后即时反馈：进度、金币、心情、信任、日志。
+- 图片模式失败时回退文本，不影响使用。
+- `reset --yes` 支持开发期清理指定 `--home`。
 
 ### v1.1 — 宠物船体验强化
 
-目标：船像宠物，而不是状态图标。
+目标：先把“当前船像宠物”这件事稳住，为 v1.2 多船收集打底。
 
-- 船只状态机细化：waiting / sailing / happy / resting / low_energy / treasure
-- 不同状态有明确动画和文案反馈
-- 互动反馈：鼓励、休息提醒、连续打卡 callback
-- 打卡历史影响船只表现，但不制造焦虑
-- dashboard PNG 与 TUI 视觉语言统一
+- 当前船状态机细化：waiting / sailing / happy / resting / low_energy / treasure。
+- 不同状态有明确动画、文案、颜色和 fallback。
+- 休息反馈要温和，不制造羞耻感。
+- 连续打卡只增强陪伴反馈，不做复杂 XP grind。
+- dashboard PNG 与 TUI 视觉语言统一。
+- 不引入多船经济，不引入真实 LLM，不扩地图玩法。
 
-### v1.2 — 船只资产与商店
+### v1.2 — 多船收集系统
 
-目标：允许多船、多皮肤、可扩展资产。
+目标：让 bestman 的“酷功能”成立：打卡赚金币，购买/装备不同宠物船，看到当前船明显变化。
 
-- ownership / equipped 模型
-- shop item 类型：船、皮肤、装饰、动画
-- vessel manifest 扩展 rarity / price / unlock
-- 自定义船只校验和导入体验
-- 后续预留 LLM 生成 spritesheet 草稿，但规则和资产校验仍在本地
+明确范围：
+
+- 第一版是 **纯视觉差异**：船只不提供金币、心情、航速等数值加成。
+- schema 预留 `traits/effects`，但 v1.2 不启用。
+- 第一批 5 艘船全部手工/硬编码资产，不接 LLM 生成。
+- 基于旧 Python 预设精神重做，不恢复全局 `naval/cultivation` 主题系统。
+- TUI 首屏只显示当前船，不显示 `Fleet 1/5` 之类收集进度。
+
+第一批内置船：
+
+| id | 来源精神 | 定位 | rarity | price |
+|------|------|------|------|------|
+| `starter_sloop` | 初阶帆船 | 默认温柔小帆船 | common | 0 |
+| `dragon_prow` | 龙头战船 | 更有冲击力的进阶船 | uncommon | 80 |
+| `ghost_lantern` | 幽灵船 | 夜航/灯火/幽灵氛围 | rare | 140 |
+| `cloudblade_skiff` | 飞剑 | 云剑小舟，不恢复修仙主题 | rare | 220 |
+| `yinglong_ark` | 应龙 | 高阶幻想灵舟 | epic | 360 |
+
+实现顺序：
+
+1. 数据模型：catalog item、owned/equipped projection、事件类型。
+2. catalog：`assets/catalog.json` 注册所有内置船。
+3. 规则：购买/装备写事件，SQLite 只做投影。
+4. 资产：补齐 5 艘船的 manifest、spritesheet、动画帧。
+5. CLI 展示：`shop list`、`shop buy <id>`、`vessel list`、`vessel set <id>`。
+
+架构边界：
+
+- `vessel.json` 只管渲染：spritesheet、frame、animations。
+- `catalog.json` 管收集/商店：kind、price、rarity、unlock、tags。
+- 所有船必须注册 catalog 才能进入新版系统。
+- 用户自定义船保留为 experimental，但必须在 `<home>/catalog.json` 注册。
+- `shop` 类型系统预留 `vessel/skin/decoration/animation`，v1.2 只实现 `vessel`。
+- `unlock` 字段先解析/保留，第一版只支持空条件或 `always`。
 
 ### v2.0 — 训练计划与真实 LLM 叙事
 
-目标：让打卡内容更贴合用户目标。
+目标：在多船收集闭环稳定后，让打卡内容更贴合用户目标。
 
 - 本地轻量训练计划
 - 今日任务在 TUI 中展示
@@ -119,7 +149,7 @@ Rust CLI/TUI
 
 ### v3.0 — 远期叙事扩展
 
-目标：在宠物船体验稳定后，再加入更复杂的世界观。
+目标：在宠物船和多船收集都稳定后，再加入更复杂的世界观。
 
 - 船员/角色作为叙事扩展，而不是核心养成
 - 饮食、体重、伤病建议作为可选模块
@@ -136,6 +166,8 @@ Rust CLI/TUI
 6. **资产可校验**：船只由 manifest + spritesheet 描述，路径和帧范围必须校验。
 7. **图片协议可选**：Kitty/Ghostty/WezTerm 图片模式是增强，文本 fallback 必须可用。
 8. **避免焦虑型系统**：不做过重任务、惩罚、复杂 XP grind。
+9. **收集规则和资产分离**：`vessel.json` 管渲染，`catalog.json` 管价格、稀有度、解锁。
+10. **多船先做视觉差异**：v1.2 不做船只属性加成，只预留 future traits/effects。
 
 ## 不再作为主线的旧方向
 
@@ -155,17 +187,17 @@ Rust CLI/TUI
 
 | 旧功能 | 当前归类 | 路线位置 | 处理方式 |
 |------|------|------|------|
-| 真实 LLM 日志 | 必须迁回 | v2.0 / [other.md](other.md) | 只生成叙事，失败 template fallback |
+| 真实 LLM 日志 | 必须迁回但后置 | v2.0 / [other.md](other.md) | v1.2 之后再接；只生成叙事，失败 template fallback |
 | `talk` AI 教练 | 重做 | v2.0 / [plan.md](plan.md) | 先做计划建议，不让 LLM 自动改状态 |
 | `plan create/show/edit` | 重做 | v2.0 / [plan.md](plan.md) | 事件化轻量计划，不照搬 `plan.yaml` 复杂体系 |
 | 周回顾 AI 总结 | 暂缓 | v2/v3 / [other.md](other.md) | 等真实 LLM 稳定后再做 |
 | `weigh` / `progress` | 必须迁回但后置 | v2 / [fitness.md](fitness.md) | 走事件源，保持非焦虑反馈 |
-| 旧 50×14 地图主界面 | 重做 | [map.md](map.md) | 降级为长期进度背景 |
+| 旧 50×14 地图主界面 | 重做 | [map.md](map.md) | 降级为长期进度背景，不进入 v1.2 |
 | `bestman map` / `stats` | 暂缓 | [map.md](map.md) | 先用 TUI progress 和 dashboard PNG |
 | 1-6 骰子 / 互动掷骰 | 重做 | v1.1/v2 | 当前 1-3 简化节奏；后续如恢复必须服务宠物反馈 |
 | `done -e N` 手动额外步数 | 暂缓 | v2 | 容易破坏规则一致性，需事件化设计 |
 | dice-mode 配置 | 暂缓 | v2 | 等骰子模型稳定后再做 |
-| naval / cultivation 主题 | 暂缓 | v3 | 当前只做宠物船视觉资产，不恢复全局主题系统 |
+| naval / cultivation 主题 | 不恢复主线 | v3 backlog | v1.2 只继承旧预设精神，不恢复全局主题切换 |
 | 随机事件 | 重做 | v2/v3 | 不能抢核心打卡体验，必须 deterministic replay |
 | 宝藏系统 | 重做 | v1.1/v1.2 | 保留为宠物船奖励/动画触发，不做地图主玩法 |
 | skip token | 重做 | v1.1 | 当前只做 rest/skip；后续再补“休息不羞辱”的更细规则 |
@@ -173,4 +205,5 @@ Rust CLI/TUI
 | `config dice-mode` / 配置命令 | 暂缓 | v2 | 当前先用 `config.toml`，后续只暴露高频安全配置 |
 | crew / 船员 / 港口 | 远期 | [crew.md](crew.md) | 降级为叙事扩展，不做 v1 主线 |
 | `eat` 饮食记录 | 远期 | [diet.md](diet.md) | 可选非审判式记录 |
+| 自定义船只 | 实验入口 | v1.2 / [pet-vessel.md](pet-vessel.md) | 必须在 `<home>/catalog.json` 注册才进入系统 |
 | 自定义地图 / 主题市场 / 社区 | 远期 | [other.md](other.md) | 等本地资产模型稳定后再设计 |

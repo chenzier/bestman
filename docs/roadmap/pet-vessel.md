@@ -53,18 +53,35 @@
 
 ### 船只资产
 
-当前 manifest 是基础版。v1.2 扩展：
+当前 manifest 是基础版。v1.2 开始必须把“渲染资产”和“商店/收集规则”分开。
+
+`vessel.json` 只负责渲染：
 
 ```json
 {
   "id": "starter_sloop",
   "displayName": "温柔小帆船",
-  "rarity": "starter",
-  "price": 0,
-  "unlock": { "type": "default" },
   "spritesheetPath": "spritesheet.png",
   "frame": { "width": 128, "height": 128, "columns": 8, "rows": 4 },
   "animations": {}
+}
+```
+
+`assets/catalog.json` 负责商店和收集：
+
+```json
+{
+  "items": [
+    {
+      "id": "dragon_prow",
+      "kind": "vessel",
+      "rarity": "uncommon",
+      "price": 80,
+      "unlock": { "type": "always" },
+      "assetPath": "vessels/dragon_prow/vessel.json",
+      "tags": ["legacy-naval", "dragon"]
+    }
+  ]
 }
 ```
 
@@ -74,18 +91,52 @@
 - frame geometry 非零且不过大。
 - animation frame 不越界。
 - 缺失 animation 时有 fallback。
+- catalog 中的 `assetPath` 不得逃逸 catalog 根目录。
+- 未注册 catalog 的船不能进入商店、列表或装备流程。
 
 ## v1.2 多船/商店
 
-需要把当前简单 `shop buy` 升级成明确模型：
+v1.2 的目标不是“多几张图”，而是做成真正的收集闭环：
 
 ```text
-owned_vessels
-equipped_vessel
-owned_items
+打卡赚金币 -> shop list 看到船 -> shop buy 购买 -> vessel set 装备 -> TUI 显示当前船
 ```
 
-商店物品类型：
+### 第一批 5 艘内置船
+
+旧 Python 版已有 `schooner / dragon / ghost / sword / yinglong` 预设。新版不直接恢复旧 theme system，而是保留精神、统一重做为宠物船资产：
+
+| id | 旧预设来源 | 新版定位 | rarity | price |
+|------|------|------|------|------|
+| `starter_sloop` | `schooner` 初阶帆船 | 默认温柔小帆船 | common | 0 |
+| `dragon_prow` | `dragon` 龙头战船 | 进阶龙头战船 | uncommon | 80 |
+| `ghost_lantern` | `ghost` 幽灵船 | 夜航幽灵灯船 | rare | 140 |
+| `cloudblade_skiff` | `sword` 飞剑 | 云剑小舟 | rare | 220 |
+| `yinglong_ark` | `yinglong` 应龙 | 高阶应龙灵舟 | epic | 360 |
+
+第一版全部手工/硬编码资产，不做 LLM 生成。
+
+### 状态模型
+
+事实事件：
+
+```text
+VesselPurchased { vessel_id, price }
+VesselEquipped { vessel_id }
+```
+
+SQLite 投影：
+
+```text
+owned_items
+owned_vessels
+equipped_vessel
+coins
+```
+
+事件源仍然是事实来源，SQLite 必须可以从 `events.jsonl` 重建。
+
+### 商店物品类型
 
 | 类型 | 说明 |
 |------|------|
@@ -94,7 +145,32 @@ owned_items
 | decoration | 灯、旗帜、小物件 |
 | animation | 特殊待机/庆祝动画 |
 
-短期只需要简单内置船，不急着做生成式资产。
+v1.2 只实现 `vessel`，但 catalog schema 保留 `kind`，避免后续加皮肤/装饰时重做。
+
+### v1.2 不做
+
+- 不做船只属性加成。所有船第一版都是纯视觉差异。
+- 不在 TUI 首屏展示收集进度；首屏只显示当前船。
+- 不恢复全局 `naval/cultivation` 主题切换。
+- 不做 LLM 生成船只。
+- 不做随机掉落或里程碑自动赠送。
+- 不做复杂 unlock evaluator；`unlock` 先支持空条件或 `always`。
+
+### 用户自定义船
+
+用户自定义船保留为 experimental：
+
+```text
+<home>/catalog.json
+<home>/vessels/<id>/vessel.json
+<home>/vessels/<id>/spritesheet.png
+```
+
+要求：
+
+- 必须在 `<home>/catalog.json` 注册。
+- id 不能和内置 catalog 冲突，除非后续明确支持 override。
+- 未注册的 `<home>/vessels/<id>` 不再自动进入 `vessel list`。
 
 ## LLM 资产生成边界
 
