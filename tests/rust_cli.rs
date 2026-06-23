@@ -257,6 +257,48 @@ fn cli_config_show_and_rebuild_projection_work() {
 }
 
 #[test]
+fn cli_coin_grant_adds_replayable_coins() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "coins",
+            "grant",
+            "10000",
+            "--reason",
+            "shop testing",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("coins granted: +10000"))
+        .stdout(predicate::str::contains("coins: 10000"));
+
+    std::fs::remove_file(home.join("bestman.db")).unwrap();
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "rebuild"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "status", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"coins\": 10000"));
+}
+
+#[test]
 fn cli_lists_builtin_catalog_and_blocks_unowned_vessel_equip() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");
@@ -749,7 +791,8 @@ fn cli_live_tui_can_force_kitty_image_frames() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\u{1b}_Ga=d,d=i,i=7007"))
-        .stdout(predicate::str::contains("\u{1b}_Ga=T,f=100,i=7007"))
+        .stdout(predicate::str::contains("\u{1b}_Ga=T,f=100,i=7007,c="))
+        .stdout(predicate::str::contains(",r="))
         .stdout(predicate::str::contains("live_tui_completed ticks=2"));
 }
 

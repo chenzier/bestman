@@ -34,9 +34,25 @@ pub fn detect_current() -> ImageProtocol {
 }
 
 pub fn kitty_inline_png(path: &Path, image_id: u32) -> Result<String> {
+    kitty_inline_png_sized(path, image_id, None, None)
+}
+
+pub fn kitty_inline_png_sized(
+    path: &Path,
+    image_id: u32,
+    columns: Option<u16>,
+    rows: Option<u16>,
+) -> Result<String> {
     let bytes = std::fs::read(path)?;
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-    Ok(format!("\x1b_Ga=T,f=100,i={image_id},m=0;{encoded}\x1b\\"))
+    let mut options = format!("a=T,f=100,i={image_id}");
+    if let Some(columns) = columns {
+        options.push_str(&format!(",c={}", columns.max(1)));
+    }
+    if let Some(rows) = rows {
+        options.push_str(&format!(",r={}", rows.max(1)));
+    }
+    Ok(format!("\x1b_G{options},m=0;{encoded}\x1b\\"))
 }
 
 pub fn kitty_delete(image_id: u32) -> String {

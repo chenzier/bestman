@@ -248,14 +248,16 @@ fn run_live_dashboard_inner(
             let image_result = (|| -> Result<()> {
                 refresh_image_frames(app, &mut image_frames, &mut last_image_frame_key)?;
                 let size = terminal.size()?;
-                let origin = companion_image_origin(Rect::new(0, 0, size.width, size.height));
+                let placement = companion_image_placement(Rect::new(0, 0, size.width, size.height));
                 if tick % image_frame_stride(options.tick_ms) == 0 {
-                    queue!(terminal.backend_mut(), MoveTo(origin.0, origin.1))?;
+                    queue!(terminal.backend_mut(), MoveTo(placement.x, placement.y))?;
                     write_kitty_frame(
                         terminal.backend_mut(),
                         &image_frames,
                         tick,
                         options.image_id,
+                        placement.columns,
+                        placement.rows,
                     )?;
                 }
                 Ok(())
@@ -509,10 +511,7 @@ fn draw_today_tab(
             Line::raw(""),
             Line::raw(""),
             Line::raw(""),
-            Line::styled(
-                "Your companion is here.",
-                Style::default().fg(Color::DarkGray),
-            ),
+            Line::raw(""),
             Line::raw(""),
             Line::styled("~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~", Style::default().fg(Color::Blue)),
         ]
@@ -855,12 +854,31 @@ fn dashboard_areas(area: Rect) -> DashboardAreas {
     }
 }
 
-fn companion_image_origin(area: Rect) -> (u16, u16) {
+#[derive(Debug, Clone, Copy)]
+struct ImagePlacement {
+    x: u16,
+    y: u16,
+    columns: u16,
+    rows: u16,
+}
+
+fn companion_image_placement(area: Rect) -> ImagePlacement {
     let areas = dashboard_areas(area);
-    (
-        areas.companion.x.saturating_add(4),
-        areas.companion.y.saturating_add(3),
-    )
+    let columns = (areas.companion.width.saturating_sub(8)).clamp(24, 56);
+    let rows = (areas.companion.height.saturating_sub(8)).clamp(10, 24);
+    ImagePlacement {
+        x: areas
+            .companion
+            .x
+            .saturating_add(areas.companion.width.saturating_sub(columns) / 2),
+        y: areas
+            .companion
+            .y
+            .saturating_add(areas.companion.height.saturating_sub(rows) / 2)
+            .saturating_sub(1),
+        columns,
+        rows,
+    }
 }
 
 fn tab_bar_lines(current: DashboardTab) -> Vec<Line<'static>> {
@@ -1141,6 +1159,8 @@ fn write_kitty_frame<W: Write>(
     image_frames: &[PathBuf],
     tick: usize,
     image_id: u32,
+    columns: u16,
+    rows: u16,
 ) -> Result<()> {
     if image_frames.is_empty() {
         return Ok(());
@@ -1150,7 +1170,7 @@ fn write_kitty_frame<W: Write>(
     write!(
         writer,
         "{}",
-        terminal_image::kitty_inline_png(frame, image_id)?
+        terminal_image::kitty_inline_png_sized(frame, image_id, Some(columns), Some(rows))?
     )?;
     writer.flush()?;
     Ok(())

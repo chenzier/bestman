@@ -192,6 +192,12 @@ impl Projection {
                         params![daily_task],
                     )?;
                 }
+                EventKind::CoinsGranted { amount, .. } => {
+                    tx.execute(
+                        "UPDATE app_state SET coins=coins+? WHERE id=1",
+                        params![amount],
+                    )?;
+                }
                 EventKind::VesselChanged { vessel_id } => {
                     tx.execute(
                         "UPDATE app_state SET current_vessel=?,animation='happy' WHERE id=1",

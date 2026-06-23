@@ -4,8 +4,8 @@
   "description": "A mythic companion ark inspired by the legacy Yinglong preset.",
   "spritesheetPath": "spritesheet.png",
   "frame": {
-    "width": 128,
-    "height": 128,
+    "width": 192,
+    "height": 192,
     "columns": 8,
     "rows": 4
   },

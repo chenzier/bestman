@@ -194,6 +194,21 @@ pub fn plan_adjusted_event(
     }))
 }
 
+pub fn coins_granted_event(date: NaiveDate, amount: i32, reason: String) -> Result<StoredEvent> {
+    if amount <= 0 {
+        bail!("coin grant amount must be positive");
+    }
+    let reason = reason.trim().to_string();
+    if reason.is_empty() {
+        bail!("coin grant reason cannot be empty");
+    }
+    Ok(StoredEvent::new(EventKind::CoinsGranted {
+        date,
+        amount,
+        reason,
+    }))
+}
+
 pub fn purchase_event(dashboard: &Dashboard, item: &CatalogItem) -> Result<StoredEvent> {
     if item.kind != CatalogItemKind::Vessel {
         bail!("only vessel shop items are supported in v1.2");

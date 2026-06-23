@@ -61,6 +61,11 @@ pub enum EventKind {
         daily_task: String,
         reason: String,
     },
+    CoinsGranted {
+        date: NaiveDate,
+        amount: i32,
+        reason: String,
+    },
     VesselChanged {
         vessel_id: String,
     },

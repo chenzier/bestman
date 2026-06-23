@@ -45,6 +45,10 @@ enum Command {
         command: ConfigCommand,
     },
     Rebuild,
+    Coins {
+        #[command(subcommand)]
+        command: CoinsCommand,
+    },
     Done {
         #[arg(long, value_enum, default_value_t = LevelArg::Normal)]
         level: LevelArg,
@@ -149,6 +153,15 @@ enum ConfigCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum CoinsCommand {
+    Grant {
+        amount: i32,
+        #[arg(long, default_value = "manual grant")]
+        reason: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum PlanCommand {
     Create {
         #[arg(long)]
@@ -224,6 +237,17 @@ pub fn run() -> Result<()> {
             println!("position: {}/{}", dash.position, dash.total_days);
             println!("current_vessel: {}", dash.current_vessel);
         }
+        Command::Coins { command } => match command {
+            CoinsCommand::Grant { amount, reason } => {
+                let mut app = BestmanApp::open(paths)?;
+                app.store
+                    .append(rules::coins_granted_event(today(), amount, reason)?)?;
+                app.rebuild_projection()?;
+                let dash = app.projection.dashboard()?;
+                println!("coins granted: +{amount}");
+                println!("coins: {}", dash.coins);
+            }
+        },
         Command::Done {
             level,
             message,

@@ -11,7 +11,9 @@ use bestman_rs::events::{CompletionLevel, EventKind, VesselAnimation};
 use bestman_rs::llm::{build_openai_chat_request, parse_openai_chat_response};
 use bestman_rs::projection::Projection;
 use bestman_rs::rules;
-use bestman_rs::terminal_image::{ImageProtocol, detect_from_env, kitty_delete, kitty_inline_png};
+use bestman_rs::terminal_image::{
+    ImageProtocol, detect_from_env, kitty_delete, kitty_inline_png, kitty_inline_png_sized,
+};
 use bestman_rs::vessels::catalog::VesselCatalog;
 use bestman_rs::vessels::manifest::VesselManifest;
 use bestman_rs::vessels::render::{FrameCache, export_animation_frames, render_preview};
@@ -566,6 +568,8 @@ fn terminal_image_protocol_detection_and_kitty_encoding_work() {
     assert!(seq.starts_with("\u{1b}_Ga=T,f=100,i=42,m=0;"));
     assert!(seq.ends_with("\u{1b}\\"));
     assert!(seq.len() > 100);
+    let sized = kitty_inline_png_sized(&png, 43, Some(40), Some(16)).unwrap();
+    assert!(sized.starts_with("\u{1b}_Ga=T,f=100,i=43,c=40,r=16,m=0;"));
     assert_eq!(kitty_delete(42), "\u{1b}_Ga=d,d=i,i=42\u{1b}\\");
 }
 
