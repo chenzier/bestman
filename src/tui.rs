@@ -30,15 +30,17 @@ use crate::vessels::render::FrameCache;
 enum DashboardTab {
     Today,
     Plan,
+    Chat,
     Shop,
     Fleet,
     Log,
 }
 
 impl DashboardTab {
-    const ALL: [DashboardTab; 5] = [
+    const ALL: [DashboardTab; 6] = [
         DashboardTab::Today,
         DashboardTab::Plan,
+        DashboardTab::Chat,
         DashboardTab::Shop,
         DashboardTab::Fleet,
         DashboardTab::Log,
@@ -48,6 +50,7 @@ impl DashboardTab {
         match self {
             DashboardTab::Today => "Today",
             DashboardTab::Plan => "Plan",
+            DashboardTab::Chat => "Chat",
             DashboardTab::Shop => "Shop",
             DashboardTab::Fleet => "Fleet",
             DashboardTab::Log => "Log",
@@ -76,6 +79,8 @@ struct TuiState {
     tab: DashboardTab,
     shop_selected: usize,
     fleet_selected: usize,
+    chat_input: String,
+    chat_editing: bool,
 }
 
 impl Default for TuiState {
@@ -84,6 +89,8 @@ impl Default for TuiState {
             tab: DashboardTab::Today,
             shop_selected: 0,
             fleet_selected: 0,
+            chat_input: String::new(),
+            chat_editing: false,
         }
     }
 }
@@ -355,6 +362,22 @@ fn handle_key(
         return UiAction::Quit;
     }
     match key.code {
+        KeyCode::Enter if ui_state.chat_editing => {
+            ui_state.chat_editing = false;
+            return action_notice(send_tui_chat(app, ui_state), "Captain replied.");
+        }
+        KeyCode::Esc if ui_state.chat_editing => {
+            ui_state.chat_editing = false;
+            return UiAction::Notice("Chat input cancelled.".to_string());
+        }
+        KeyCode::Backspace if ui_state.chat_editing => {
+            ui_state.chat_input.pop();
+            return UiAction::Continue;
+        }
+        KeyCode::Char(ch) if ui_state.chat_editing => {
+            ui_state.chat_input.push(ch);
+            return UiAction::Continue;
+        }
         KeyCode::Tab => {
             ui_state.next_tab();
             UiAction::Continue
@@ -479,6 +502,7 @@ fn draw_pet_dashboard(
     match ui_state.tab {
         DashboardTab::Today => draw_today_tab(frame, dash, images_enabled, notice, &areas),
         DashboardTab::Plan => draw_plan_tab(frame, dash, notice, areas.body),
+        DashboardTab::Chat => draw_chat_tab(frame, dash, ui_state, notice, areas.body),
         DashboardTab::Shop => draw_shop_tab(frame, dash, catalog, ui_state, notice, areas.body),
         DashboardTab::Fleet => draw_fleet_tab(frame, dash, catalog, ui_state, notice, areas.body),
         DashboardTab::Log => draw_log_tab(frame, dash, notice, areas.body),
@@ -698,6 +722,80 @@ fn draw_shop_tab(
                     .title(" Shop ")
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Yellow)),
+            )
+            .wrap(ratatui::widgets::Wrap { trim: true }),
+        area,
+    );
+}
+
+fn draw_chat_tab(
+    frame: &mut ratatui::Frame<'_>,
+    dash: &Dashboard,
+    ui_state: &TuiState,
+    notice: Option<&str>,
+    area: Rect,
+) {
+    let log = dash
+        .latest_log
+        .as_deref()
+        .unwrap_or("Captain is waiting for your first message.");
+    let prompt = if ui_state.chat_editing {
+        format!("> {}", ui_state.chat_input)
+    } else if ui_state.chat_input.is_empty() {
+        "> Press i to type".to_string()
+    } else {
+        format!("> {}", ui_state.chat_input)
+    };
+    let mut lines = vec![
+        Line::styled(
+            "Captain Chat",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Line::from(vec![
+            Span::styled("Mode ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                if ui_state.chat_editing {
+                    "typing"
+                } else {
+                    "reading"
+                },
+                Style::default().fg(if ui_state.chat_editing {
+                    Color::Yellow
+                } else {
+                    Color::Cyan
+                }),
+            ),
+            Span::raw("   "),
+            Span::styled("Send ", Style::default().fg(Color::DarkGray)),
+            Span::raw("Enter"),
+            Span::raw("   "),
+            Span::styled("Type ", Style::default().fg(Color::DarkGray)),
+            Span::raw("i"),
+        ]),
+        Line::raw(""),
+        Line::styled("Latest reply", Style::default().fg(Color::DarkGray)),
+        Line::raw(log.to_string()),
+        Line::raw(""),
+        Line::styled("Message", Style::default().fg(Color::DarkGray)),
+        Line::styled(
+            prompt,
+            Style::default().fg(if ui_state.chat_editing {
+                Color::Yellow
+            } else {
+                Color::White
+            }),
+        ),
+    ];
+    push_notice(&mut lines, notice);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" Chat ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
             )
             .wrap(ratatui::widgets::Wrap { trim: true }),
         area,
@@ -955,6 +1053,10 @@ fn today_action_lines(
                 Style::default().fg(Color::LightBlue),
             ),
         ]),
+        Line::from(vec![
+            Span::styled("Milestone ", Style::default().fg(Color::DarkGray)),
+            Span::styled(milestone_status(dash), Style::default().fg(Color::Magenta)),
+        ]),
     ];
     push_notice(&mut lines, notice);
     lines.extend([
@@ -963,7 +1065,7 @@ fn today_action_lines(
         Line::styled("[F] Full training", Style::default().fg(Color::Yellow)),
         Line::styled("[N] Normal   [L] Light", Style::default().fg(Color::Yellow)),
         Line::styled(
-            "[S] Rest     [Tab] Plan/Shop/Fleet/Log     [Q] Quit",
+            "[S] Rest     [Tab] Plan/Chat/Shop/Fleet/Log     [Q] Quit",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -1131,6 +1233,27 @@ fn compact_route(dash: &Dashboard) -> String {
     out
 }
 
+fn milestone_status(dash: &Dashboard) -> String {
+    let marks = [
+        (dash.total_days / 4, "第一片远海"),
+        (dash.total_days / 2, "中途港湾"),
+        (dash.total_days * 3 / 4, "信风尽头"),
+        (dash.total_days, "新大陆"),
+    ];
+    for (day, name) in marks {
+        if day == 0 {
+            continue;
+        }
+        if dash.position == day {
+            return format!("{name} reached");
+        }
+        if dash.position < day {
+            return format!("{name} in {} day(s)", day.saturating_sub(dash.position));
+        }
+    }
+    "New continent reached".to_string()
+}
+
 fn refresh_image_frames(
     app: &BestmanApp,
     image_frames: &mut Vec<PathBuf>,
@@ -1183,12 +1306,20 @@ fn apply_action(
     action: char,
     forced_dice: Option<u32>,
 ) -> UiAction {
+    if ui_state.chat_editing && !matches!(action, '\n' | '\r') {
+        ui_state.chat_input.push(action);
+        return UiAction::Continue;
+    }
     match action {
         '[' => {
             ui_state.previous_tab();
         }
         ']' | '\t' => {
             ui_state.next_tab();
+        }
+        '\n' | '\r' if ui_state.chat_editing => {
+            ui_state.chat_editing = false;
+            return action_notice(send_tui_chat(app, ui_state), "Captain replied.");
         }
         'j' | 'J' => {
             ui_state.move_selection(catalog, 1);
@@ -1216,6 +1347,10 @@ fn apply_action(
         }
         's' | 'S' if ui_state.tab == DashboardTab::Today => {
             return action_notice(append_skip(app), "Rest recorded.");
+        }
+        'i' | 'I' if ui_state.tab == DashboardTab::Chat => {
+            ui_state.chat_editing = true;
+            return UiAction::Notice("Typing message. Enter sends, Esc cancels.".to_string());
         }
         'b' | 'B' if ui_state.tab == DashboardTab::Shop => {
             return action_notice(
@@ -1274,6 +1409,46 @@ fn append_skip(app: &mut BestmanApp) -> Result<()> {
     app.store.append(event)?;
     app.rebuild_projection()?;
     Ok(())
+}
+
+fn send_tui_chat(app: &mut BestmanApp, ui_state: &mut TuiState) -> Result<()> {
+    app.rebuild_projection()?;
+    let dash = app.projection.dashboard()?;
+    let message = ui_state.chat_input.trim().to_string();
+    if message.is_empty() {
+        anyhow::bail!("chat message cannot be empty");
+    }
+    let text = local_tui_captain_chat(&dash, &message);
+    app.store.append(rules::captain_chat_generated_event(
+        Local::now().date_naive(),
+        message,
+        text,
+        "template".to_string(),
+        "bestman-v3-tui-captain-chat-template".to_string(),
+    )?)?;
+    ui_state.chat_input.clear();
+    app.rebuild_projection()?;
+    Ok(())
+}
+
+fn local_tui_captain_chat(dash: &Dashboard, message: &str) -> String {
+    let lowered = message.to_lowercase();
+    if dash.last_action_date == Some(Local::now().date_naive()) {
+        return format!(
+            "今天已经记录过了。船长建议你停在这里，最多做 5 分钟拉伸；{} 会在港口把灯留着。",
+            dash.current_vessel
+        );
+    }
+    if lowered.contains("累") || lowered.contains("tired") || lowered.contains("疲") {
+        return format!(
+            "可以把今天降到轻量版：{}。船长不会催你加量，先把节奏接住。",
+            dash.daily_task
+        );
+    }
+    format!(
+        "船长看了今天的任务：{}。先做最小可完成的一组，完成后再决定要不要继续。",
+        dash.daily_task
+    )
 }
 
 fn purchase_selected_vessel(

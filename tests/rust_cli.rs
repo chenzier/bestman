@@ -916,12 +916,14 @@ fn cli_tui_generates_companion_preview() {
         .success()
         .stdout(predicate::str::contains("Today"))
         .stdout(predicate::str::contains("Plan"))
+        .stdout(predicate::str::contains("Chat"))
         .stdout(predicate::str::contains("Shop"))
         .stdout(predicate::str::contains("Fleet"))
         .stdout(predicate::str::contains("Log"))
         .stdout(predicate::str::contains("Starter Sloop"))
         .stdout(predicate::str::contains("Task 深蹲 3x15"))
         .stdout(predicate::str::contains("Ready for today's training."))
+        .stdout(predicate::str::contains("Milestone"))
         .stdout(predicate::str::contains("Route progress"))
         .stdout(predicate::str::contains("Hidden by multi-width symbols").not());
 
@@ -1012,15 +1014,57 @@ fn cli_live_tui_script_can_switch_tabs() {
             "--no-alt-screen",
             "--no-raw-mode",
             "--script",
-            "]]]]q",
+            "]]]]]q",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Training Plan"))
+        .stdout(predicate::str::contains("Latest reply"))
         .stdout(predicate::str::contains("Ship Shop"))
         .stdout(predicate::str::contains("Fleet"))
         .stdout(predicate::str::contains("Captain's Log"))
         .stdout(predicate::str::contains("live_tui_completed"));
+}
+
+#[test]
+fn cli_live_tui_chat_can_send_message() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "tui",
+            "--live",
+            "--tick-ms",
+            "0",
+            "--no-alt-screen",
+            "--no-raw-mode",
+            "--script",
+            "]]i累\nq",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Captain replied."))
+        .stdout(predicate::str::contains("live_tui_completed"));
+
+    let events = std::fs::read_to_string(home.join("events.jsonl")).unwrap();
+    assert!(events.contains("\"type\":\"captain_chat_generated\""));
+
+    Command::cargo_bin("bestman-rs")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "log"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("轻量版"));
 }
 
 #[test]
@@ -1241,7 +1285,7 @@ fn cli_live_tui_script_can_buy_and_equip_custom_vessel() {
             "--no-alt-screen",
             "--no-raw-mode",
             "--script",
-            "]]jb]jeq",
+            "]]]jb]jeq",
         ])
         .assert()
         .success()
