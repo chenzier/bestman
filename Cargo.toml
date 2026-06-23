@@ -1,0 +1,29 @@
+[package]
+name = "bestman-rs"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "bestman-rs"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+crossterm = "0.28"
+directories = "6.0"
+image = { version = "0.25", default-features = false, features = ["png", "webp"] }
+rand = "0.9"
+ratatui = "0.29"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+uuid = { version = "1.11", features = ["v7", "serde"] }
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.14"

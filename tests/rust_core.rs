@@ -1,0 +1,326 @@
+use chrono::NaiveDate;
+use image::GenericImageView;
+use tempfile::tempdir;
+
+use bestman_rs::app::{AppPaths, BestmanApp};
+use bestman_rs::config::BestmanConfig;
+use bestman_rs::dashboard::{
+    build_dashboard_render, export_dashboard_frames, export_dashboard_png,
+};
+use bestman_rs::events::{CompletionLevel, EventKind, VesselAnimation};
+use bestman_rs::projection::Projection;
+use bestman_rs::rules;
+use bestman_rs::terminal_image::{ImageProtocol, detect_from_env, kitty_delete, kitty_inline_png};
+use bestman_rs::vessels::catalog::VesselCatalog;
+use bestman_rs::vessels::manifest::VesselManifest;
+use bestman_rs::vessels::render::{FrameCache, export_animation_frames, render_preview};
+
+#[test]
+fn event_replay_rebuilds_projection() {
+    let dir = tempdir().unwrap();
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    let config = BestmanConfig::default();
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let dash = app.projection.dashboard().unwrap();
+    let event = rules::check_in_event(
+        &config,
+        &dash,
+        NaiveDate::from_ymd_opt(2026, 6, 23).unwrap(),
+        CompletionLevel::Full,
+        "完成全套".to_string(),
+        Some(3),
+    )
+    .unwrap();
+    app.store.append(event).unwrap();
+    app.rebuild_projection().unwrap();
+
+    let before = app.projection.dashboard().unwrap();
+    assert_eq!(before.position, 3);
+    assert_eq!(before.completed_days, 1);
+    assert_eq!(before.coins, 12);
+    assert_eq!(before.trust, 23);
+    assert_eq!(before.animation, VesselAnimation::Sailing);
+
+    std::fs::remove_file(&app.paths.db).unwrap();
+    let events = app.store.read_all().unwrap();
+    let mut rebuilt = Projection::open(&app.paths.db).unwrap();
+    rebuilt.rebuild(events).unwrap();
+    assert_eq!(rebuilt.dashboard().unwrap(), before);
+}
+
+#[test]
+fn narrative_generated_replaces_template_log() {
+    let dir = tempdir().unwrap();
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    BestmanConfig::default().save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    let config = app.config.clone();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let dash = app.projection.dashboard().unwrap();
+    let check_in = rules::check_in_event(
+        &config,
+        &dash,
+        NaiveDate::from_ymd_opt(2026, 6, 23).unwrap(),
+        CompletionLevel::Light,
+        "".to_string(),
+        Some(1),
+    )
+    .unwrap();
+    let target = app.store.append(check_in).unwrap().id;
+    app.store
+        .append(rules::narrative_generated_event(
+            target,
+            "LLM 替换日志".to_string(),
+            "mock".to_string(),
+        ))
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    assert_eq!(
+        app.projection.dashboard().unwrap().latest_log.as_deref(),
+        Some("LLM 替换日志")
+    );
+}
+
+#[test]
+fn manifest_rejects_path_traversal() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("vessel.json");
+    std::fs::write(
+        &path,
+        r#"{
+            "id":"bad",
+            "displayName":"bad",
+            "description":"bad",
+            "spritesheetPath":"../escape.png",
+            "frame":{"width":128,"height":128,"columns":1,"rows":4},
+            "animations":{
+                "idle":{"frames":[0],"fps":6.0,"looped":true,"fallback":"idle"},
+                "sailing":{"frames":[0],"fps":6.0,"looped":true,"fallback":"idle"},
+                "resting":{"frames":[0],"fps":6.0,"looped":true,"fallback":"idle"},
+                "celebrating":{"frames":[0],"fps":6.0,"looped":true,"fallback":"idle"}
+            }
+        }"#,
+    )
+    .unwrap();
+    assert!(VesselManifest::load(&path).is_err());
+}
+
+#[test]
+fn preview_generation_produces_nonblank_png() {
+    let catalog = VesselCatalog::load_default().unwrap();
+    let manifest = catalog.find("starter_sloop").unwrap();
+    let dir = tempdir().unwrap();
+    let output = dir.path().join("preview.png");
+    render_preview(manifest, "idle", &output).unwrap();
+    assert!(output.exists());
+    let img = image::open(&output).unwrap().to_rgba8();
+    assert_eq!(img.dimensions(), (128, 128));
+    let unique = img
+        .pixels()
+        .map(|p| p.0)
+        .collect::<std::collections::HashSet<_>>();
+    assert!(unique.len() > 4, "preview image should not be blank");
+}
+
+#[test]
+fn custom_vessel_catalog_and_frame_cache_work() {
+    let dir = tempdir().unwrap();
+    let custom_dir = dir.path().join("vessels/mock_boat");
+    std::fs::create_dir_all(&custom_dir).unwrap();
+    std::fs::write(
+        custom_dir.join("vessel.json"),
+        r#"{
+            "id":"mock_boat",
+            "displayName":"Mock Boat",
+            "description":"custom test boat",
+            "spritesheetPath":"spritesheet.png",
+            "frame":{"width":32,"height":32,"columns":2,"rows":2},
+            "animations":{
+                "idle":{"frames":[0],"fps":6.0,"looped":true,"fallback":"idle"},
+                "sailing":{"frames":[1],"fps":6.0,"looped":true,"fallback":"idle"},
+                "resting":{"frames":[2],"fps":6.0,"looped":true,"fallback":"idle"},
+                "celebrating":{"frames":[3],"fps":6.0,"looped":true,"fallback":"idle"}
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let catalog = VesselCatalog::load_with_user_dir(&dir.path().join("vessels")).unwrap();
+    let manifest = catalog.find("mock_boat").unwrap();
+    let cache = FrameCache::new(dir.path().join("cache"));
+    let frame = cache.first_animation_frame(manifest, "sailing").unwrap();
+    assert!(frame.exists());
+    let img = image::open(frame).unwrap();
+    assert_eq!(img.width(), 32);
+    assert_eq!(img.height(), 32);
+}
+
+#[test]
+fn rest_day_uses_rest_event_without_skip_penalty() {
+    let config = BestmanConfig::default();
+    let dir = tempdir().unwrap();
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let dash = app.projection.dashboard().unwrap();
+    let sunday = NaiveDate::from_ymd_opt(2026, 6, 28).unwrap();
+    let event = rules::skip_or_rest_event(&config, &dash, sunday, "rest".to_string()).unwrap();
+    assert!(matches!(event.kind, EventKind::RestDayObserved { .. }));
+}
+
+#[test]
+fn terminal_image_protocol_detection_and_kitty_encoding_work() {
+    assert_eq!(
+        detect_from_env(Some("xterm-kitty"), None),
+        ImageProtocol::Kitty
+    );
+    assert_eq!(
+        detect_from_env(Some("xterm-256color"), Some("WezTerm")),
+        ImageProtocol::Kitty
+    );
+    assert_eq!(
+        detect_from_env(Some("xterm-sixel"), None),
+        ImageProtocol::Sixel
+    );
+    assert_eq!(
+        detect_from_env(Some("xterm-256color"), None),
+        ImageProtocol::None
+    );
+
+    let catalog = VesselCatalog::load_default().unwrap();
+    let manifest = catalog.find("starter_sloop").unwrap();
+    let dir = tempdir().unwrap();
+    let png = dir.path().join("preview.png");
+    render_preview(manifest, "idle", &png).unwrap();
+    let seq = kitty_inline_png(&png, 42).unwrap();
+    assert!(seq.starts_with("\u{1b}_Ga=T,f=100,i=42,m=0;"));
+    assert!(seq.ends_with("\u{1b}\\"));
+    assert!(seq.len() > 100);
+    assert_eq!(kitty_delete(42), "\u{1b}_Ga=d,d=i,i=42\u{1b}\\");
+}
+
+#[test]
+fn kitty_encoding_changes_across_animation_frames() {
+    let catalog = VesselCatalog::load_default().unwrap();
+    let manifest = catalog.find("starter_sloop").unwrap();
+    let dir = tempdir().unwrap();
+    let cache = FrameCache::new(dir.path().join("cache"));
+    let frames = cache.animation_frames(manifest, "sailing").unwrap();
+    assert_eq!(frames.len(), 4);
+
+    let first = kitty_inline_png(&frames[0], 77).unwrap();
+    let last = kitty_inline_png(&frames[3], 77).unwrap();
+    assert!(first.contains("\u{1b}_Ga=T,f=100,i=77"));
+    assert_ne!(
+        first, last,
+        "different animation frames should produce different terminal image payloads"
+    );
+}
+
+#[test]
+fn dashboard_snapshot_and_png_export_are_valid() {
+    let dir = tempdir().unwrap();
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    let config = BestmanConfig::default();
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.rebuild_projection().unwrap();
+
+    let render = build_dashboard_render(&app).unwrap();
+    assert!(render.text.contains("Companion Vessel"));
+    assert!(render.text.contains("Route"));
+    assert!(render.companion_frame.exists());
+
+    let output = dir.path().join("dashboard.png");
+    export_dashboard_png(&app, &output).unwrap();
+    let img = image::open(&output).unwrap().to_rgba8();
+    assert_eq!(img.dimensions(), (900, 560));
+    let unique = img
+        .pixels()
+        .map(|p| p.0)
+        .collect::<std::collections::HashSet<_>>();
+    assert!(
+        unique.len() > 8,
+        "dashboard image should contain multiple visual regions"
+    );
+}
+
+#[test]
+fn animation_and_dashboard_frame_sequences_export() {
+    let dir = tempdir().unwrap();
+    let catalog = VesselCatalog::load_default().unwrap();
+    let manifest = catalog.find("starter_sloop").unwrap();
+    let raw_frames = export_animation_frames(manifest, "sailing", &dir.path().join("raw")).unwrap();
+    assert_eq!(raw_frames.len(), 4);
+    for frame in &raw_frames {
+        let img = image::open(frame).unwrap();
+        assert_eq!(img.dimensions(), (128, 128));
+    }
+    assert_ne!(
+        std::fs::read(&raw_frames[0]).unwrap(),
+        std::fs::read(&raw_frames[3]).unwrap(),
+        "sailing animation frames should visibly change"
+    );
+
+    let paths = AppPaths::from_home(dir.path().join("home"));
+    let config = BestmanConfig::default();
+    config.save(&paths.config).unwrap();
+    let mut app = BestmanApp::open(paths).unwrap();
+    app.store
+        .append(rules::init_event(
+            &config,
+            NaiveDate::from_ymd_opt(2026, 6, 22).unwrap(),
+        ))
+        .unwrap();
+    app.rebuild_projection().unwrap();
+    let dash = app.projection.dashboard().unwrap();
+    let event = rules::check_in_event(
+        &config,
+        &dash,
+        NaiveDate::from_ymd_opt(2026, 6, 23).unwrap(),
+        CompletionLevel::Normal,
+        "".to_string(),
+        Some(2),
+    )
+    .unwrap();
+    app.store.append(event).unwrap();
+    app.rebuild_projection().unwrap();
+
+    let dashboard_frames =
+        export_dashboard_frames(&app, &dir.path().join("dashboard-frames")).unwrap();
+    assert_eq!(dashboard_frames.len(), 4);
+    let img = image::open(&dashboard_frames[0]).unwrap();
+    assert_eq!(img.dimensions(), (900, 560));
+    assert_ne!(
+        std::fs::read(&dashboard_frames[0]).unwrap(),
+        std::fs::read(&dashboard_frames[3]).unwrap(),
+        "dashboard animation frames should include changing companion frames"
+    );
+}

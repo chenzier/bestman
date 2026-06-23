@@ -1,0 +1,12 @@
+pub mod app;
+pub mod cli;
+pub mod config;
+pub mod dashboard;
+pub mod events;
+pub mod llm;
+pub mod map;
+pub mod projection;
+pub mod rules;
+pub mod terminal_image;
+pub mod tui;
+pub mod vessels;
