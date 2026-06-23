@@ -129,6 +129,7 @@ enum Command {
 enum VesselCommand {
     List,
     Set { id: String },
+    Validate { id: Option<String> },
 }
 
 #[derive(Debug, Subcommand)]
@@ -389,6 +390,12 @@ pub fn run() -> Result<()> {
                     app.rebuild_projection()?;
                     println!("vessel equipped");
                 }
+                VesselCommand::Validate { id } => {
+                    let catalog =
+                        VesselCatalog::load_with_user_dir(&app.paths.home.join("vessels"))?;
+                    let count = validate_vessels(&app, &catalog, id.as_deref())?;
+                    println!("validated {count} vessel(s)");
+                }
             }
         }
         Command::Shop { command } => {
@@ -562,6 +569,24 @@ fn next_plan_task(dash: &crate::projection::Dashboard) -> Result<String> {
         .map(|idx| (idx + 1) % dash.plan_tasks.len())
         .unwrap_or(0);
     Ok(dash.plan_tasks[next].clone())
+}
+
+fn validate_vessels(app: &BestmanApp, catalog: &VesselCatalog, id: Option<&str>) -> Result<usize> {
+    let manifests = match id {
+        Some(id) => vec![
+            catalog
+                .find(id)
+                .ok_or_else(|| anyhow::anyhow!("unknown vessel {id}"))?,
+        ],
+        None => catalog.vessels.iter().collect::<Vec<_>>(),
+    };
+    let output_dir = app.paths.cache.join("vessel-validation");
+    for manifest in &manifests {
+        let output = output_dir.join(format!("{}-idle.png", manifest.id));
+        crate::vessels::render::render_preview(manifest, "idle", &output)?;
+        println!("{} ok {}", manifest.id, output.display());
+    }
+    Ok(manifests.len())
 }
 
 fn print_dashboard(app: &BestmanApp, dash: &crate::projection::Dashboard) {

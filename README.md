@@ -65,6 +65,7 @@ q / Esc / Ctrl-C
 | `bestman --home <dir> plan next` | 切换到计划中的下一项任务 |
 | `bestman --home <dir> vessel list` | 查看可用船只 |
 | `bestman --home <dir> vessel set <id>` | 切换当前船只 |
+| `bestman --home <dir> vessel validate [id]` | 校验已注册船只资产并渲染 preview |
 | `bestman --home <dir> shop list` | 查看商店船只、价格、稀有度和拥有状态 |
 | `bestman --home <dir> shop buy <item_id>` | 购买已注册 catalog 的船只 |
 | `bestman --home <dir> tui` | 打开静态宠物船面板 |

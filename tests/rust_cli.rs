@@ -254,6 +254,39 @@ fn cli_lists_builtin_catalog_and_blocks_unowned_vessel_equip() {
 }
 
 #[test]
+fn cli_vessel_validate_checks_catalog_assets() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args(["--home", home.to_str().unwrap(), "vessel", "validate"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("starter_sloop ok"))
+        .stdout(predicate::str::contains("validated 5 vessel(s)"));
+
+    Command::cargo_bin("bestman")
+        .unwrap()
+        .args([
+            "--home",
+            home.to_str().unwrap(),
+            "vessel",
+            "validate",
+            "dragon_prow",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("dragon_prow ok"))
+        .stdout(predicate::str::contains("validated 1 vessel(s)"));
+
+    assert!(
+        home.join("cache/vessel-validation/dragon_prow-idle.png")
+            .exists()
+    );
+}
+
+#[test]
 fn cli_plan_commands_update_today_task() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");
