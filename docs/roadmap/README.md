@@ -1,7 +1,7 @@
 # bestman 技术路线 · 总览
 
-> 最后更新：2026-06-23  
-> 当前阶段：Rust-only 主线，v3.x 叙事 backlog
+> 最后更新：2026-10-22
+> 当前实现：Rust CLI/TUI；下一阶段目标：Android Agent 化宠物船与角色对话
 
 ## 产品定位
 
@@ -39,6 +39,8 @@ Rust CLI/TUI
 ```
 
 详细阶段执行与验收标准见 [P1-P5 执行方案](p1-p5-execution-plan.md)。
+
+这描述的是现有 CLI/TUI，不是手机版的界面或最终跨端架构。Android Agent 路线见 [mobile.md](mobile.md)；角色设定见 [crew.md](crew.md)；训练和饮食能力见 [plan.md](plan.md)、[diet.md](diet.md)。
 
 ## 当前已落地
 
@@ -214,18 +216,26 @@ Rust CLI/TUI
 - 仍然写 `RecapGenerated` 事件，可通过 SQLite projection 重建。
 - 这是显式 CLI 检查，不引入后台调度服务。
 
-### v3.x — 后续叙事 backlog
+### 已完成版本之后 — Android 产品主线（规划，尚未实现）
 
-- 船员/角色作为叙事扩展，而不是核心养成。
-- 饮食作为可选模块。
-- 地图动态效果、创意工坊、社区资产市场。
+1. 从 Arxd fork 验证模型连接、流式对话和重启恢复；替换逆向分析的角色指令与入口，不预先抽独立 core，也不要求 MCP。
+2. 船长、吟游诗人使用各自人设与对话历史；宠物船渲染台词、表情和动作。先做电脑上的界面原型，再用 Android 开发构建验证真实运行时。
+3. 角色对话成立后再验证现有 Rust 规则、事件与资产如何供 Android 调用。打卡和体重等事实由规则写入，不依赖模型在线；不要另造一套互不兼容的打卡规则。
+4. AI 训练计划和拍照饮食后续接入；建议和估算可编辑，经用户确认才改变真实状态。跨设备同步待单机语义稳定后设计。
+
+产品边界：这些是规划，不等于今天已有 Android 客户端、自动排课或拍照分析。角色对话可依赖云端模型；联网失败不能伪装成真实回复，后续本地记录功能不得因模型不可用而丢失。
+
+### 其他后续 backlog
+
+- 复杂船员招募和数值养成后置；船长、吟游诗人等对话角色进入首版。
+- 地图动态效果、创意工坊、社区资产市场继续后置。
 
 ## 关键设计决策
 
-1. **Rust 是唯一主入口**：早期 Python prototype 已移除，不并行扩新功能。
+1. **当前 Rust CLI/TUI，后续 Android Agent 客户端**：早期 Python prototype 已移除；先验证基于 Arxd 的角色对话，不把 TUI 当作手机界面，也不预先承诺 Rust 核心直接编译进 Android。
 2. **宠物船优先**：地图是背景，船是每日体验中心。
 3. **规则拥有状态**：金币、心情、信任、位置只能由 deterministic rules 改。
-4. **LLM 只写叙事**：LLM 不参与状态计算，不决定奖励。
+4. **模型输出不直接改核心状态**：当前 LLM 用于叙事；未来可以提出训练计划和饮食识别结果，经用户确认后由应用规则写入，不让模型决定奖励。
 5. **事件源是事实来源**：`events.jsonl` 是事实，SQLite 可重建。
 6. **资产可校验**：船只由 manifest + spritesheet 描述，路径和帧范围必须校验。
 7. **图片协议可选**：Kitty/Ghostty/WezTerm 图片模式是增强，文本 fallback 必须可用。
@@ -267,7 +277,7 @@ Rust CLI/TUI
 | skip token | 重做 | v1.1 | 当前只做 rest/skip；后续再补“休息不羞辱”的更细规则 |
 | `reset` | 已迁回 | v1.0 | `reset --yes` 清空指定 `--home` 数据 |
 | `config dice-mode` / 配置命令 | 暂缓 | v2 | 当前先用 `config.toml`，后续只暴露高频安全配置 |
-| crew / 船员 / 港口 | 远期 | [crew.md](crew.md) | 降级为叙事扩展，不做 v1 主线 |
+| crew / 船员 / 港口 | 拆分 | [crew.md](crew.md) | 对话角色进入 Android 首版；招募、升级和港口后置 |
 | `eat` 饮食记录 | 远期 | [diet.md](diet.md) | 可选非审判式记录 |
 | 自定义船只 | 实验入口 | v1.2 / [pet-vessel.md](pet-vessel.md) | 必须在 `<home>/catalog.json` 注册才进入系统 |
 | 自定义地图 / 主题市场 / 社区 | 远期 | [other.md](other.md) | 等本地资产模型稳定后再设计 |
